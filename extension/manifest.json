@@ -30,6 +30,7 @@
         "src/content/bridge.js",
         "src/content/tools.js",
         "src/content/agent.js",
+        "src/content/panel-mount.js",
         "src/content/panel.js"
       ],
       "css": ["src/content/panel.css"],
