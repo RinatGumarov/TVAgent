@@ -69,13 +69,22 @@ window.TVAgentMount = (() => {
    * Driver-pushed active/inactive events. Bound once regardless of how many
    * times attachNative runs, so a bfcache restore never leaves a second
    * listener firing every onActive handler twice.
+   *
+   * Gated on the current mode: the driver's teardown() deliberately leaves
+   * wb.watching's subscriptions on activePageIndex/isMinimized alive — they
+   * are keyed to the layout, not to a mount — so after a failed restore that
+   * fell back to overlay, the next native tab click can still make the
+   * driver emit widgetbar-active with wb.page === null. Without this check
+   * that stale event would reach onActive handlers even though the panel is
+   * no longer native, breaking this module's contract.
    */
   function bindActiveListener() {
     if (activeListenerBound) return;
     activeListenerBound = true;
-    bridge.on('widgetbar-active', ({ active }) =>
-      activeHandlers.forEach((fn) => fn(active))
-    );
+    bridge.on('widgetbar-active', ({ active }) => {
+      if (mode !== 'native') return;
+      activeHandlers.forEach((fn) => fn(active));
+    });
   }
 
   /**
@@ -91,6 +100,19 @@ window.TVAgentMount = (() => {
    * If the remount fails (say, the user logged out in another tab and the
    * widget bar no longer exists), fall back to the overlay rather than leave
    * the panel detached from the document — the same fallback first boot uses.
+   *
+   * `mode !== 'native'` is a one-way door: once a failed restore has fallen
+   * back to overlay, this handler never tries native again for the life of
+   * this page instance, even on a later restore. That is deliberate, not an
+   * oversight. A bfcache restore only happens on a back/forward navigation of
+   * this same frozen page, so whatever made the mount fail (most plausibly:
+   * the session logged out) is a real state change, not a transient race —
+   * driver.js's own JS state is frozen and resumed along with everything
+   * else, so there is no "it just hadn't loaded yet" case to recover from by
+   * trying again. Retrying on every subsequent restore would also mean the
+   * panel could jump between overlay and native across navigations, which is
+   * worse UX than settling once. Recovering into native again is still
+   * possible the ordinary way: a full reload re-runs mount() from scratch.
    */
   async function onPageShow(event) {
     if (!event.persisted || mode !== 'native') return;

@@ -414,8 +414,9 @@ console.log('\n— bfcache restore: отказ на восстановлении
   const chr = makeChrome();
   let shouldFail = false;
   let mountCalls = 0;
+  let activeHandler = null;
   const bridge = {
-    on() {},
+    on(type, fn) { if (type === 'widgetbar-active') activeHandler = fn; },
     async call(method) {
       if (method === 'widgetbar_mount') {
         mountCalls++;
@@ -441,6 +442,17 @@ console.log('\n— bfcache restore: отказ на восстановлении
     [true, true, false]
   );
   check('resizer подключён при откате', root.children.some((c) => c.className === 'tva-resizer'), true);
+
+  // wb.watching в driver.js подписан на лэйаут, а не на монтирование, так
+  // что живой лэйаут вполне может ещё раз дёрнуть syncActive() (например,
+  // на клике по нативной вкладке) и прислать widgetbar-active уже после
+  // отката на overlay — с wb.page === null. Он не должен долетать до
+  // onActive: панель больше не native.
+  const seen = [];
+  Mount.onActive((active) => seen.push(active));
+  check('слушатель на widgetbar-active остался подключён', typeof activeHandler, 'function');
+  activeHandler({ active: false });
+  check('устаревшее событие после отката на overlay не долетает до onActive', seen, []);
 }
 
 console.log(failed ? `\n${failed} провалов\n` : '\nвсё зелёное\n');
