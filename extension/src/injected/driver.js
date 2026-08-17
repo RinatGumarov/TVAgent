@@ -156,6 +156,50 @@
     return bar.layout;
   }
 
+  /**
+   * True once everything a mount needs actually exists: `window.widgetbar`,
+   * its `.layout`, and the right-toolbar DOM node `injectButton` clones from.
+   * widget-bar.ts's constructor sets `this.layout` synchronously, so the
+   * first two always arrive together — but the toolbar itself is a separate
+   * React render and can still lag behind by a tick, so it gets its own check
+   * rather than being assumed from the other two.
+   */
+  function widgetBarPresent() {
+    const bar = window.widgetbar;
+    return !!(bar && bar.layout && document.querySelector('[data-name="right-toolbar"]'));
+  }
+
+  // widgetbar-creator.ts only calls createWidgetBar() once window.is_authenticated
+  // is true (either at page load or on a live login), so that flag is what
+  // separates "the bar is on its way" from "there will never be one" — measured
+  // at 1084ms, well ahead of the bar itself (2735-3082ms). 40 attempts at
+  // 200ms apart is an 8s budget: about 2.6x the slowest of three measured
+  // reloads, comfortably inside bridge.js's 45s call timeout, and fine-grained
+  // enough (200ms) that the common case doesn't overshoot the real readiness
+  // time by much.
+  const WIDGETBAR_WAIT_ATTEMPTS = 40;
+  const WIDGETBAR_POLL_INTERVAL_MS = 200;
+
+  /**
+   * Waits for the widget bar to be mountable, or rejects fast when it never
+   * will be. Polls rather than hooking `window.loginStateChange`: that global
+   * exists, but subscribing to a host object couples us to internals we do
+   * not otherwise need.
+   */
+  async function waitForWidgetBar() {
+    if (widgetBarPresent()) return;
+    if (!window.is_authenticated) {
+      throw new Error('TradingView widget bar is not on this page (anonymous session?).');
+    }
+    for (let i = 0; i < WIDGETBAR_WAIT_ATTEMPTS; i++) {
+      await new Promise((r) => setTimeout(r, WIDGETBAR_POLL_INTERVAL_MS));
+      if (widgetBarPresent()) return;
+    }
+    throw new Error(
+      `Timed out waiting for the TradingView widget bar to appear (waited ${WIDGETBAR_WAIT_ATTEMPTS * WIDGETBAR_POLL_INTERVAL_MS}ms).`
+    );
+  }
+
   function ourIndex() {
     return wb.page ? layout().pages.indexOf(wb.page) : -1;
   }
@@ -450,12 +494,19 @@
   }
 
   /** Creates a real widget bar page and returns the id of its element. */
-  function wbMount({ label = 'AI', title = 'TVAgent' } = {}) {
+  async function wbMount({ label = 'AI', title = 'TVAgent' } = {}) {
     if (wb.el && document.contains(wb.el)) return { ok: true, pageId: PAGE_ID };
     // A mount whose element is gone still owns a page in layout.pages, a button
     // in the toolbar and a live observer that would put that button back —
     // running the body again would leave the user with two identical tabs.
     teardown();
+
+    // The chart has this same asynchrony and bridge.js's probeWhenReady()
+    // retries for it; nothing equivalent existed here, so the very first
+    // mount call — which lands well before window.widgetbar exists on a
+    // freshly authenticated page — used to fail permanently instead of
+    // waiting.
+    await waitForWidgetBar();
 
     const L = layout();
     // Pre-flight only: createPage() appends to the layout's own container

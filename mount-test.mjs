@@ -217,6 +217,39 @@ console.log('\n— overlay-путь —');
   check('overlay: в консоль ушла заметка о причине', infoLogs.some((s) => /widget bar unavailable/.test(s)), true);
 }
 
+{
+  // bridge.call('widgetbar_mount') отвечает ok:true, но элемента с этим
+  // pageId в документе нет. Ревью пометило этот путь "недостижимым" — тем же
+  // рассуждением, из-за которого гонка виджетбара молча уходила в overlay:
+  // "не может случиться" — это утверждение о мире, а не о коде. Откат должен
+  // остаться рабочим, и теперь про него должна остаться заметка в консоли, а
+  // не тишина.
+  const doc = makeDocument();
+  const win = makeWindow();
+  const chr = makeChrome();
+  const infoLogs = [];
+  const originalInfo = console.info;
+  console.info = (...args) => infoLogs.push(args.join(' '));
+
+  const bridge = {
+    on() {},
+    async call(method) {
+      if (method === 'widgetbar_mount') return { ok: true, pageId: 'tva-widgetbar-page' };
+      throw new Error('unexpected call ' + method);
+    },
+  };
+  const Mount = load({ window: win, document: doc, chrome: chr, bridge });
+  const { root, mode } = await Mount.mount();
+  console.info = originalInfo;
+
+  check('пропавший элемент страницы: откат на overlay', mode, 'overlay');
+  check(
+    'пропавший элемент страницы: заметка ушла в консоль',
+    infoLogs.some((s) => /page element/.test(s)),
+    true
+  );
+}
+
 console.log('\n— toggle —');
 
 {

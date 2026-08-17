@@ -235,6 +235,35 @@ function makeFullDocument(toolbar = makeToolbar()) {
   return doc;
 }
 
+/**
+ * Полный документ, у которого querySelector отвечает null до вызова
+ * .reveal() — то, что реально видел браузер до того, как TradingView собрал
+ * виджетбар: ни .widgetbar-pagescontent, ни right-toolbar в DOM ещё нет,
+ * хотя оба узла уже существуют как объекты и появятся мгновенно, как только
+ * .reveal() позовут. content и toolbar доступны напрямую в обход
+ * querySelector — так же, как настоящий layout.createPage() пишет в свой
+ * контейнер напрямую, а не через селектор.
+ */
+function makeDelayedFullDocument(toolbar = makeToolbar()) {
+  const full = makeFullDocument(toolbar);
+  let ready = false;
+  return {
+    ...full,
+    querySelector: (sel) => (ready ? full.querySelector(sel) : null),
+    reveal: () => { ready = true; },
+  };
+}
+
+/**
+ * setTimeout, который не тратит настоящее время: зовёт колбэк почти сразу,
+ * независимо от запрошенной задержки. Нужен только тесту на «бюджет ожидания
+ * исчерпан» — драйвер честно проходит все WIDGETBAR_WAIT_ATTEMPTS попыток,
+ * просто быстро.
+ */
+function instantTimer(fn) {
+  setTimeout(fn, 0);
+}
+
 // ------------------------------------------------------------------ layout
 
 /**
@@ -346,7 +375,7 @@ function makeLayout(pageCount = 3, doc = null) {
   return L;
 }
 
-function load({ layout, document: doc = makeDocument() }) {
+function load({ layout, document: doc = makeDocument(), isAuthenticated = false, setTimeoutImpl }) {
   const posted = [];
   const listeners = {};
   mutationObservers.length = 0;
@@ -359,6 +388,10 @@ function load({ layout, document: doc = makeDocument() }) {
     postMessage: (m) => posted.push(m),
     TradingViewApi: {},
     widgetbar: layout ? { layout } : undefined,
+    // widgetbar-creator.ts зовёт createWidgetBar() только под этим флагом —
+    // waitForWidgetBar в драйвере читает его, чтобы отличить "ещё не успел"
+    // от "никогда не будет".
+    is_authenticated: isAuthenticated,
     MutationObserver: class {
       constructor(cb) {
         this.cb = cb;
@@ -376,13 +409,18 @@ function load({ layout, document: doc = makeDocument() }) {
       }
     },
   };
+  // setTimeout — отдельный параметр песочницы (а не свойство win), потому что
+  // waitForWidgetBar в драйвере зовёт его голым идентификатором, а не
+  // window.setTimeout. Подмена нужна только тесту на исчерпанный бюджет —
+  // остальные получают настоящий таймер.
   new Function(
     'window',
     'document',
     'localStorage',
     'performance',
+    'setTimeout',
     src
-  )(win, doc, { getItem: () => null }, { now: () => 0 });
+  )(win, doc, { getItem: () => null }, { now: () => 0 }, setTimeoutImpl || setTimeout);
   // __adopt hangs off the debug export, not HANDLERS — it must not be reachable
   // by posting a tva-req from page script.
   return {
@@ -415,8 +453,11 @@ console.log('\n— монтирование —');
 }
 
 {
+  // Бар и тулбар уже на месте — это проверка downstream-отказа внутри
+  // wbMount, а не гонки появления бара, поэтому оба даны сразу.
   const L = makeLayout();
-  const { call } = load({ layout: L, document: makeDocument() });
+  const doc = makeDocument({ '[data-name="right-toolbar"]': makeToolbar() });
+  const { call } = load({ layout: L, document: doc });
   const err = await failure(() => call('widgetbar_mount'));
   check('без контейнера страниц монтирование отказывает', /page container/i.test(err), true);
   check('страница не создавалась', L.calls, []);
@@ -424,17 +465,21 @@ console.log('\n— монтирование —');
 
 {
   // hide_right_toolbar_tabs — тулбар не рендерится вовсе
-  // (right-toolbar-renderer.ts:11-24), injectButton бросает уже ПОСЛЕ
-  // createPage. Осиротевшая страница в layout.pages — это лишняя пустая
-  // вкладка у пользователя, поэтому монтирование обязано откатиться.
+  // (right-toolbar-renderer.ts:11-24) и никогда не появится: это фичесет
+  // сборки, а не гонка загрузки. waitForWidgetBar не умеет — и не должен —
+  // отличать такой перманентный дефицит от медленной загрузки, поэтому ждёт
+  // весь бюджет и лишь потом отказывает. createPage() в этот раз не
+  // вызывается вовсе (waitForWidgetBar бросает раньше layout()), так что
+  // сиротской странице просто неоткуда взяться — раньше её откатывал
+  // injectButton, теперь она не создаётся вовсе.
   const doc = makeFullDocument();
   doc.querySelector = (sel) => (sel === '.widgetbar-pagescontent' ? doc.content : null);
   const L = makeLayout(3, doc);
-  const { call } = load({ layout: L, document: doc });
+  const { call } = load({ layout: L, document: doc, isAuthenticated: true, setTimeoutImpl: instantTimer });
   const err = await failure(() => call('widgetbar_mount'));
-  check('без тулбара монтирование отказывает', /toolbar/i.test(err), true);
-  check('страница откатилась, а не осталась висеть', L.pages.length, 3);
-  check('элемент страницы убран из DOM', doc.content.children.length, 0);
+  check('без тулбара монтирование отказывает по таймауту', /timed out/i.test(err), true);
+  check('страница не создавалась вовсе', L.calls, []);
+  check('элемент страницы не появился в DOM', doc.content.children.length, 0);
 }
 
 {
@@ -592,6 +637,60 @@ console.log('\n— монтирование —');
   const evt = posted.filter((m) => m.source === 'tva-evt').pop();
   check('новый лэйаут снова гоняет наше состояние',
     [evt && evt.type, evt && evt.payload], ['widgetbar-active', { active: true }]);
+}
+
+console.log('\n— гонка появления бара —');
+
+{
+  // Сам баг: на живой странице window.widgetbar (а с ним .layout и тулбар)
+  // появляется примерно через секунду-полторы ПОСЛЕ того, как драйвер уже
+  // готов и получает первый widgetbar_mount — window.is_authenticated
+  // взводится раньше, но createWidgetBar() всё равно асинхронна. Старый код
+  // бросал на первом же промахе и на этом успокаивался навсегда; монтирование
+  // обязано подождать и довести дело до конца.
+  const doc = makeDelayedFullDocument();
+  const L = makeLayout(3, doc);
+  const { call, win } = load({ layout: null, document: doc, isAuthenticated: true });
+  setTimeout(() => {
+    doc.reveal();
+    win.widgetbar = { layout: L };
+  }, 350);
+  const res = await call('widgetbar_mount');
+  check('гонка: монтирование дожидается бара и не отказывает', res, { ok: true, pageId: 'tva-widgetbar-page' });
+  check('гонка: страница создана', L.pages.length, 4);
+  const btn = doc.toolbar.children.find((c) => c.attrs['data-name'] === 'tva-agent');
+  check('гонка: кнопка вставлена в тулбар', Boolean(btn), true);
+  check('гонка: страница доступна по id', doc.content.children.includes(L.pages[3].el), true);
+}
+
+{
+  // Анонимная сессия: бара не будет никогда, и это известно сразу —
+  // window.is_authenticated ложный. Отказ обязан быть мгновенным, а не
+  // тратить единственный бюджет ожидания на пустое опрашивание.
+  const doc = makeDocument();
+  const { call } = load({ layout: null, document: doc, isAuthenticated: false });
+  const t0 = Date.now();
+  const err = await failure(() => call('widgetbar_mount'));
+  const elapsed = Date.now() - t0;
+  check('не авторизован: отказ про анонимную сессию', /anonymous/i.test(err), true);
+  check('не авторизован: отказ мгновенный, без опроса', elapsed < 100, true);
+}
+
+{
+  // Авторизован, но бар так и не появился в пределах бюджета (например,
+  // настоящий сбой хоста, а не обычная асинхронность). Сообщение обязано
+  // говорить о таймауте — неверный диагноз "анонимная сессия" был бы прямой
+  // ложью в адрес залогиненного пользователя.
+  const doc = makeDocument();
+  const { call } = load({
+    layout: null,
+    document: doc,
+    isAuthenticated: true,
+    setTimeoutImpl: instantTimer,
+  });
+  const err = await failure(() => call('widgetbar_mount'));
+  check('таймаут: сообщение говорит именно о таймауте', /timed out/i.test(err), true);
+  check('таймаут: сообщение не обвиняет анонимную сессию', /anonymous/i.test(err), false);
 }
 
 console.log('\n— активация —');
