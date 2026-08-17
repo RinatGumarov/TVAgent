@@ -31,7 +31,7 @@
   --tva-fg-dim: var(--color-text-secondary, #9aa1ad);
   --tva-border: var(--color-divider, #2b2f38);
   --tva-accent: var(--color-tv-blue-500, #2962ff);
-  --tva-accent-tint: var(--color-background-special-secondary, #1c2a4d);
+  --tva-accent-tint: var(--color-background-special-secondary, #132042);
   --tva-ok: var(--color-static-success, #089981);
   --tva-err: var(--color-static-danger, #f23645);
   --tva-warn: var(--color-static-warning, #ff9800);
