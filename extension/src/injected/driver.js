@@ -587,7 +587,20 @@
         report.studies = typeof c.createStudy === 'function' && typeof c.getAllStudies === 'function';
         report.drawings = typeof c.createShape === 'function';
         report.strategy = typeof c.getStudyById === 'function';
-        try { report.series = !bars().isEmpty(); } catch (_) { report.series = false; }
+        let loadedBars = null;
+        try {
+          loadedBars = bars();
+          report.series = !loadedBars.isEmpty();
+        } catch (_) { report.series = false; }
+        // The last close, for the panel's context row. Read separately from
+        // series above and on its own try/catch, so a failure here (however
+        // unlikely) cannot undo an already-correct series flag. Deliberately
+        // left absent (not even null) rather than set from a partial read:
+        // bars() throws its own "No bar data loaded yet" while the chart is
+        // still loading, and that must not fail the whole probe.
+        if (report.series) {
+          try { report.price = loadedBars.last().value[4]; } catch (_) { /* leave price absent */ }
+        }
       } catch (e) {
         report.warnings.push('Chart not ready: ' + e.message);
       }

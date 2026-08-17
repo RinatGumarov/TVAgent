@@ -141,13 +141,35 @@
     statusEl.querySelector('span').textContent = text;
   }
 
+  /**
+   * Locale-aware, not TradingView-exact: the grouping character follows the
+   * browser's active locale (a comma in en-US, a space in many European
+   * locales) rather than hand-rolling TradingView's own separator. Two
+   * decimals covers ordinary equities/FX/majors; anything trading under $1 —
+   * a lot of altcoins — widens up to 6 so the price does not round to 0.00.
+   */
+  function formatPrice(price) {
+    if (price == null || !isFinite(price)) return '';
+    return new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: Math.abs(price) < 1 ? 6 : 2,
+    }).format(price);
+  }
+
   function setContext() {
     const caps = capabilities || {};
     const where = caps.symbol
-      ? [caps.symbol, caps.resolution].filter(Boolean).join(' · ')
+      ? [caps.symbol, caps.resolution, formatPrice(caps.price)].filter(Boolean).join(' · ')
       : 'no chart';
     contextEl.textContent = where;
     root.querySelector('#tva-in-context').textContent = caps.symbol ? `${where} in context` : '';
+  }
+
+  /** Same shape as the "no chart" branch below, reused by the boot-failure paths. */
+  function showError(statusText, message) {
+    setStatus('err', statusText);
+    setEmpty(false);
+    chat.error(message);
   }
 
   // ---------------------------------------------------------------- chat
@@ -206,18 +228,36 @@
   // ---------------------------------------------------------------- boot
 
   async function boot() {
-    const { root: mountRoot, mode } = await window.TVAgentMount.mount();
+    let mountRoot, mode;
+    try {
+      ({ root: mountRoot, mode } = await window.TVAgentMount.mount());
+    } catch (err) {
+      // Nothing to build into yet — build() has not run, so none of
+      // #tva-root's chrome exists. Not reachable today (panel-mount.js
+      // already catches its own known failure modes and falls back to the
+      // overlay internally), but boot() should not fail silently if it ever
+      // is. A standalone banner, styled inline since panel.css only targets
+      // #tva-root's own descendants and there is no #tva-root yet.
+      showFatalMountError(err);
+      return;
+    }
+
     build(mountRoot);
 
-    settings = window.TVAgentSettings.create(settingsEl, {
-      onChange: ({ provider, model }) => {
-        modelChipEl.textContent = provider === 'anthropic' ? label(model) : model || 'Pick a model';
-      },
-    });
+    try {
+      settings = window.TVAgentSettings.create(settingsEl, {
+        onChange: ({ provider, model }) => {
+          modelChipEl.textContent = provider === 'anthropic' ? label(model) : model || 'Pick a model';
+        },
+      });
 
-    // The panel is only useful once it has been told what to call.
-    const configured = await settings.ready;
-    if (!configured) toggleSettings(true);
+      // The panel is only useful once it has been told what to call.
+      const configured = await settings.ready;
+      if (!configured) toggleSettings(true);
+    } catch (err) {
+      showError('error', 'TVAgent failed to start: ' + (err?.message || String(err)));
+      return;
+    }
 
     if (mode === 'native') {
       window.TVAgentMount.onActive((active) => {
@@ -226,13 +266,17 @@
     }
 
     setStatus('warn', 'connecting…');
-    capabilities = await window.TVAgentBridge.probeWhenReady();
+    try {
+      capabilities = await window.TVAgentBridge.probeWhenReady();
+    } catch (err) {
+      showError('error', 'TVAgent failed to start: ' + (err?.message || String(err)));
+      return;
+    }
     setContext();
 
     if (!capabilities.tradingViewApi || !capabilities.chart) {
-      setStatus('err', 'no chart');
-      setEmpty(false);
-      chat.error(
+      showError(
+        'no chart',
         'Could not reach the TradingView API on this page. Open a chart at ' +
           'tradingview.com/chart/ and reload.'
       );
@@ -248,6 +292,18 @@
     agent = new window.TVAgentRuntime.Agent({ capabilities, handlers: handlers() });
   }
 
+  /** No #tva-root exists yet at this point — see the comment at the call site. */
+  function showFatalMountError(err) {
+    const el = document.createElement('div');
+    el.id = 'tva-boot-error';
+    el.textContent = 'TVAgent failed to start: ' + (err?.message || String(err));
+    el.style.cssText =
+      'position:fixed;bottom:16px;right:16px;max-width:320px;padding:10px 14px;' +
+      'background:#20242b;color:#ff6b6b;border:1px solid #ff6b6b;border-radius:8px;' +
+      'font:12px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;z-index:2147483647;';
+    document.documentElement.appendChild(el);
+  }
+
   const label = (model) =>
     ({
       'claude-opus-5': 'Claude Opus',
@@ -259,5 +315,15 @@
     if (msg?.type === 'toggle-panel') window.TVAgentMount.toggle();
   });
 
-  boot();
+  // Belt and suspenders: boot() catches its own four fallible points with a
+  // specific message each, but a bare async call still swallows anything
+  // those catches missed — the exact bug this was fixed for (panel.js#262
+  // in the original report). If build() had already run there is a panel to
+  // write into; if not, fall back to the same standalone banner mount()'s
+  // own failure uses.
+  boot().catch((err) => {
+    console.error('[TVAgent] boot failed:', err);
+    if (chat) showError('error', 'TVAgent failed to start: ' + (err?.message || String(err)));
+    else showFatalMountError(err);
+  });
 })();

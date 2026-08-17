@@ -264,7 +264,10 @@ function makeElement(tagName) {
 }
 
 function makeDocument() {
-  return { createElement: (tag) => makeElement(tag) };
+  // documentElement is only needed for the mount()-rejects path: nothing
+  // else in panel.js touches document.* directly, they all go through the
+  // root/host elements the mocks hand it.
+  return { createElement: (tag) => makeElement(tag), documentElement: makeElement('html') };
 }
 
 function click(el) {
@@ -545,6 +548,150 @@ console.log('\n— boot: успешный probe создаёт Agent —');
   const h = await bootedPanel({ caps: caps({ loggedIn: false }) });
   check('Agent всё равно создан при loggedIn=false (это только статус, не блокер)', h.runtime.instances.length, 1);
   check('статус — logged out (warn)', h.statusEl.className, 'tva-status warn');
+}
+
+// ============================================================================
+console.log('\n— boot: отказ на каждой из четырёх точек показывает ошибку, а не молчит —');
+// Раньше boot() звался голым вызовом без .catch — отказ mount(), throw в
+// TVAgentSettings.create(), отказ settings.ready или отказ probeWhenReady()
+// оставлял шапку/context row/композер построенными, статус замороженным на
+// "connecting…" и никакой ошибки на экране: ни один из промисов внутри
+// boot() ничем не был обёрнут. Четыре блока ниже — по одному на каждую
+// точку — и отдельный блок на mount(), у которого при отказе ещё и панели
+// построить не из чего.
+
+{
+  // (1) mount() отказывает — build() ещё не звался, значит нет ни root, ни
+  // chat, ни statusEl — обычный showError() тут физически не из чего
+  // собрать. Проверяем отдельный путь: баннер, подвешенный прямо на
+  // document.documentElement.
+  const mount = {
+    async mount() { throw new Error('mount blew up'); },
+    onActive() {},
+    async toggle() {},
+  };
+  const settings = makeSettingsMock({ ready: true });
+  const bridge = makeBridgeMock(caps());
+  const runtime = makeRuntimeMock();
+
+  const { doc } = load({ mount, settings, bridge, runtime });
+  await flush();
+  await flush();
+
+  const banner = doc.documentElement.querySelector('#tva-boot-error');
+  check('баннер об ошибке появился прямо на documentElement', banner !== null, true);
+  check(
+    'текст баннера называет причину',
+    (banner?.textContent || '').includes('mount blew up'),
+    true
+  );
+  check('Agent не создан — build() никогда не запускался', runtime.instances.length, 0);
+}
+
+{
+  // (2) TVAgentSettings.create() бросает синхронно — build() уже отработал
+  // (root/chat/statusEl есть), так что теперь есть куда написать ошибку
+  // обычным путём: showError() → setStatus/setEmpty/chat.error.
+  const settings = { create() { throw new Error('settings.create blew up'); } };
+  const h = await bootedPanel({ settings });
+
+  check('статус — err', h.statusEl.className, 'tva-status err');
+  check('Agent не создан', h.runtime.instances.length, 0);
+  const errCall = h.listEl.querySelector('.tva-msg.error');
+  check('сообщение об ошибке в списке', errCall !== null, true);
+  check(
+    'текст сообщения называет причину',
+    (errCall?.textContent || '').includes('settings.create blew up'),
+    true
+  );
+}
+
+{
+  // (3) settings.create() отрабатывает, но её ready — отклонённый промис.
+  const settings = {
+    create() {
+      return {
+        ready: Promise.reject(new Error('ready rejected')),
+        autoApprove: () => false,
+        refresh: () => {},
+        current: () => ({}),
+      };
+    },
+  };
+  const h = await bootedPanel({ settings });
+
+  check('статус — err', h.statusEl.className, 'tva-status err');
+  check('Agent не создан', h.runtime.instances.length, 0);
+  const errCall = h.listEl.querySelector('.tva-msg.error');
+  check('сообщение об ошибке в списке', errCall !== null, true);
+  check(
+    'текст сообщения называет причину',
+    (errCall?.textContent || '').includes('ready rejected'),
+    true
+  );
+}
+
+{
+  // (4) probeWhenReady() отклоняет промис (bridge.js этого сегодня не
+  // делает сама — она ловит ошибки call() и возвращает отчёт — но boot()
+  // не должен полагаться на это и обязан пережить отказ, если он всё же
+  // случится).
+  const bridge = { probeWhenReady: async () => { throw new Error('probe rejected'); } };
+  const h = await bootedPanel({ bridge });
+
+  check('статус — err', h.statusEl.className, 'tva-status err');
+  check('Agent не создан', h.runtime.instances.length, 0);
+  const errCall = h.listEl.querySelector('.tva-msg.error');
+  check('сообщение об ошибке в списке', errCall !== null, true);
+  check(
+    'текст сообщения называет причину',
+    (errCall?.textContent || '').includes('probe rejected'),
+    true
+  );
+}
+
+// ============================================================================
+console.log('\n— context row: цена —');
+// Формула форматирования дублируется здесь той же строкой, что и в
+// panel.js (Intl.NumberFormat(undefined, {min:2, max: <2|6>})) — так тест
+// не завязан на конкретный символ-разделитель разрядов текущей локали (в
+// en-US это запятая, во многих европейских — пробел), а ловит реальные
+// регрессии: не то поле разобрано, потерян join с symbol/resolution, или
+// порог "меньше $1" сдвинут/перепутан.
+function fmtPrice(n, maxDigits) {
+  return new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: maxDigits }).format(n);
+}
+
+{
+  const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: '240', price: 121480 }) });
+  const expected = `BTCUSDT · 240 · ${fmtPrice(121480, 2)}`;
+  check('context row — символ · таймфрейм · цена', h.contextEl.textContent, expected);
+}
+
+{
+  // price отсутствует в отчёте (ровно как реальный probe его оставляет,
+  // пока бары не загружены) — context row не должен рисовать лишний
+  // разделитель или "undefined".
+  const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: '240' }) });
+  check('без цены — только символ и таймфрейм, без висячего "·"', h.contextEl.textContent, 'BTCUSDT · 240');
+}
+
+{
+  // Инструмент дешевле $1 — два знака после запятой округлили бы его в
+  // 0.00. Порог "abs(price) < 1" обязан расширить до 6 знаков.
+  const h = await bootedPanel({ caps: caps({ symbol: 'PEPEUSDT', resolution: '60', price: 0.0004567 }) });
+  const expected = `PEPEUSDT · 60 · ${fmtPrice(0.0004567, 6)}`;
+  check('субдолларовая цена не округлена в 0.00 — до 6 знаков', h.contextEl.textContent, expected);
+  check('фактическое значение видно как есть, не 0.00', h.contextEl.textContent.includes('0.00 '), false);
+}
+
+{
+  const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: '240', price: 121480 }) });
+  check(
+    'chip-подсказка тоже несёт цену ("... in context")',
+    h.root.querySelector('#tva-in-context').textContent,
+    `BTCUSDT · 240 · ${fmtPrice(121480, 2)} in context`
+  );
 }
 
 // ============================================================================
