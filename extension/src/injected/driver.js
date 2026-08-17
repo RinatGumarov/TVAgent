@@ -140,6 +140,8 @@
     unloadArmed: false,
     // Must start undefined, not false — the first sync may legitimately be false.
     lastActive: undefined,
+    // The in-flight mount, shared by concurrent widgetbar_mount calls.
+    mounting: null,
   };
 
   function layout() {
@@ -398,8 +400,14 @@
    * Creates the widget bar page. A mount already in flight is shared rather
    * than repeated.
    */
-  async function wbMount({ label = 'AI', title = 'TVAgent' } = {}) {
-    if (wb.el && document.contains(wb.el)) return { ok: true, pageId: PAGE_ID };
+  function wbMount(opts) {
+    if (wb.el && document.contains(wb.el)) return Promise.resolve({ ok: true, pageId: PAGE_ID });
+    if (wb.mounting) return wb.mounting;
+    wb.mounting = wbMountBody(opts).finally(() => { wb.mounting = null; });
+    return wb.mounting;
+  }
+
+  async function wbMountBody({ label = 'AI', title = 'TVAgent' } = {}) {
     // Clear whatever a previous mount left behind before creating anything.
     teardown();
 
