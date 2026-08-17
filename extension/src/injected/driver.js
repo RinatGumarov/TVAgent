@@ -116,9 +116,13 @@
     return out;
   }
 
-  // ---------------------------------------------------------------- widgetbar
+  // ---------------------------------------------------------------- widget bar
+  //
+  // Everything that reaches into the widget bar. `wb` owns the state a mount
+  // creates and teardown() hands all of it back.
 
   const PAGE_ID = 'tva-widgetbar-page';
+  const PAGE_NAME = 'tva_agent';
 
   /** Unsolicited push to the content script. Requests still use RES. */
   function emit(type, payload) {
@@ -126,12 +130,14 @@
   }
 
   const wb = {
-    page: null, // set by widgetbar_mount
-    el: null, // set by widgetbar_mount
-    button: null,
-    prevPage: null,
+    page: null, // WidgetBarPage handed out by layout.createPage()
+    el: null, // page.element()
+    button: null, // our cloned tab button
+    observer: null, // MutationObserver over the right toolbar
+    prevPage: null, // the user's tab, to put back on deactivate
     prevMinimized: false,
-    watching: false,
+    watching: null,
+    unloadArmed: false,
     // Must start undefined, not false — the first sync may legitimately be false.
     lastActive: undefined,
   };
@@ -174,12 +180,84 @@
     }
   }
 
+  /**
+   * Subscriptions follow the layout object: a login state change makes
+   * TradingView destroy it and install a fresh one.
+   */
   function watchActive() {
-    if (wb.watching) return;
     const L = layout();
+    if (wb.watching === L) return;
+    if (wb.watching) {
+      wb.watching.activePageIndex.unsubscribe(syncActive);
+      wb.watching.isMinimized.unsubscribe(syncActive);
+    }
     L.activePageIndex.subscribe(syncActive);
     L.isMinimized.subscribe(syncActive);
-    wb.watching = true;
+    wb.watching = L;
+  }
+
+  function watchedValue(initial) {
+    let current = initial;
+    const subs = [];
+    return {
+      value: () => current,
+      setValue(next) {
+        if (next === current) return;
+        current = next;
+        subs.slice().forEach((fn) => {
+          try { fn(current); } catch (e) { log('watched value listener failed', e); }
+        });
+      },
+      subscribe(fn, options) {
+        subs.push(fn);
+        if (options && options.callWithLast) fn(current);
+      },
+      unsubscribe(fn) {
+        if (!fn) { subs.length = 0; return; }
+        const i = subs.indexOf(fn);
+        if (i !== -1) subs.splice(i, 1);
+      },
+    };
+  }
+
+  /**
+   * layout.createPage() leaves page.tab undefined, but the host asserts on
+   * it whenever a page is switched to or away from. This inert view model
+   * keeps the host happy: `visible` is false so the toolbar draws no second
+   * button, and `onClick` is empty so nothing can reach the host's tab-click
+   * handler.
+   */
+  function inertTab(hint) {
+    const active = watchedValue(false);
+    const count = watchedValue(0);
+    const ariaLabel = watchedValue('');
+    return {
+      name: PAGE_NAME,
+      product: null,
+      area: null,
+      isNew: false,
+      TabButtonComponent: undefined,
+      isActive: active,
+      isDisabled: watchedValue(true),
+      notificationsCount: count,
+      notificationCounterAriaLabel: ariaLabel,
+      icon: watchedValue(''),
+      hint: watchedValue(hint || 'TVAgent'),
+      onClick: watchedValue(undefined),
+      visible: watchedValue(false),
+      onActiveStateChange: (state) => active.setValue(!!state),
+      updateNotifications: (value) => count.setValue(Number(value) || 0),
+      updateNotificationCounterAriaLabel: (value) => ariaLabel.setValue(String(value || '')),
+    };
+  }
+
+  /** Everything the host needs true of our page before it joins the rotation. */
+  function preparePage(page, title) {
+    page.tab = inertTab(title);
+    // A name keeps the toolbar from logging a missing-field warning and gives
+    // React a stable key.
+    page.name = PAGE_NAME;
+    return page;
   }
 
   /**
@@ -192,7 +270,9 @@
     const toolbar = document.querySelector('[data-name="right-toolbar"]');
     if (!toolbar) throw new Error('Right toolbar not found.');
 
-    const model = toolbar.querySelector('button[data-name]');
+    const model =
+      toolbar.querySelector('button[data-name][aria-pressed="false"]:not(:disabled)') ||
+      toolbar.querySelector('button[data-name]:not(:disabled)');
     if (!model) throw new Error('No widget bar button to clone.');
 
     const btn = model.cloneNode(false);
@@ -200,9 +280,9 @@
     btn.setAttribute('aria-label', title);
     btn.setAttribute('data-tooltip', title);
     btn.setAttribute('aria-pressed', 'false');
-    // TradingView's toolbar drives roving focus over buttons it knows about, and
-    // it does not know about this one — so give it its own tab stop.
-    btn.setAttribute('tabindex', '0');
+    // The toolbar keeps one roving tab stop of its own; a foreign button
+    // stays at -1.
+    btn.setAttribute('tabindex', '-1');
     btn.classList.add('tva-tab');
 
     const badge = document.createElement('span');
@@ -211,8 +291,8 @@
     btn.appendChild(badge);
 
     btn.addEventListener('click', () => {
-      if (isActive()) HANDLERS.widgetbar_deactivate();
-      else HANDLERS.widgetbar_activate();
+      if (isActive()) wbDeactivate();
+      else wbActivate();
     });
 
     placeButton(toolbar, btn);
@@ -226,14 +306,142 @@
     toolbar.insertBefore(btn, anchor || null);
   }
 
+  /**
+   * React owns the toolbar and can drop our button on any re-render; put it
+   * back.
+   */
   function watchToolbar(toolbar, btn) {
-    // A splice below our page changes what our index means without notifying
-    // anyone, so re-sync here as well as re-placing the button.
-    const observer = new MutationObserver(() => {
+    wb.observer = new window.MutationObserver(() => {
       if (!toolbar.contains(btn)) placeButton(toolbar, btn);
       syncActive();
     });
-    observer.observe(toolbar, { childList: true });
+    wb.observer.observe(toolbar, { childList: true });
+  }
+
+  /** Undoes everything mount created, in reverse order. */
+  function teardown() {
+    if (!wb.page && !wb.el && !wb.button && !wb.observer) return;
+
+    if (wb.observer) {
+      wb.observer.disconnect();
+      wb.observer = null;
+    }
+    if (wb.button) {
+      if (wb.button.remove) wb.button.remove();
+      wb.button = null;
+    }
+    if (wb.page) {
+      const page = wb.page;
+      try {
+        if (isActive()) wbDeactivate();
+        layout().removePage(page);
+      } catch (e) {
+        log('teardown could not remove the page', e);
+      }
+      wb.page = null;
+    }
+    wb.el = null;
+    wb.prevPage = null;
+    wb.prevMinimized = false;
+    wb.lastActive = undefined;
+    syncActive();
+  }
+
+  /**
+   * Removes our page before the document goes away. `pagehide` rather than
+   * `beforeunload`: it fires on bfcache navigations and does not disqualify
+   * the page from the cache.
+   */
+  function armUnloadTeardown() {
+    if (wb.unloadArmed) return;
+    wb.unloadArmed = true;
+    window.addEventListener('pagehide', () => {
+      try {
+        teardown();
+      } catch (e) {
+        /* the document is going away anyway */
+      }
+    });
+  }
+
+  /**
+   * Creates the widget bar page. A mount already in flight is shared rather
+   * than repeated.
+   */
+  function wbMount({ label = 'AI', title = 'TVAgent' } = {}) {
+    if (wb.el && document.contains(wb.el)) return { ok: true, pageId: PAGE_ID };
+    // Clear whatever a previous mount left behind before creating anything.
+    teardown();
+
+    const L = layout();
+    // Pre-flight only: createPage() appends to the layout's own container,
+    // not to whatever this query happens to find.
+    if (!document.querySelector('.widgetbar-pagescontent')) {
+      throw new Error('Widget bar page container not found.');
+    }
+
+    const page = L.createPage();
+    wb.page = page;
+    try {
+      // Before anything below can throw: a rollback switches pages, which
+      // needs the tab.
+      preparePage(page, title);
+
+      const el = page.element();
+      if (!el) throw new Error('createPage() produced no page element.');
+      wb.el = el;
+      el.id = PAGE_ID;
+
+      const { toolbar, btn } = injectButton(label, title);
+      watchToolbar(toolbar, btn);
+      watchActive();
+      armUnloadTeardown();
+    } catch (e) {
+      // createPage() has already touched layout.pages and the DOM; leave
+      // nothing behind.
+      teardown();
+      throw e;
+    }
+
+    return { ok: true, pageId: PAGE_ID };
+  }
+
+  /**
+   * Activation goes through switchPage, never onTabClick — the latter calls
+   * saveToTVSettings() and would write our page into the account's saved
+   * widget bar layout.
+   */
+  function wbActivate() {
+    const L = layout();
+    const index = ourIndex();
+    if (index === -1) throw new Error('Widget bar page is not mounted.');
+    // On page identity, not visibility: our page can be active while the bar
+    // is minimized.
+    if (index !== L.activeIndex) {
+      wb.prevPage = L.pages[L.activeIndex] || null;
+      wb.prevMinimized = !!L.isMinimized.value();
+    }
+    L.switchPage(index);
+    // activeName is persisted with the next settings save and would reset the
+    // user's tab on reload.
+    L.activeName = (wb.prevPage && wb.prevPage.name) || '';
+    L.setMinimizedState(false);
+    return { ok: true };
+  }
+
+  function wbDeactivate() {
+    const L = layout();
+    // Only when we are the one showing; detachment (-1) is excluded
+    // explicitly.
+    const index = ourIndex();
+    if (index === -1 || index !== L.activeIndex) return { ok: true };
+    if (wb.prevPage) L.switchPage(wb.prevPage);
+    if (wb.prevMinimized) L.setMinimizedState(true);
+    return { ok: true };
+  }
+
+  function wbState() {
+    return { active: isActive(), minimized: !!layout().isMinimized.value() };
   }
 
   // ---------------------------------------------------------------- handlers
@@ -298,75 +506,12 @@
       return report;
     },
 
-    // ---- widgetbar ----------------------------------------------------------
+    // ---- widgetbar --------------------------------------------------------
 
-    /**
-     * Creates the widget bar page. A mount already in flight is shared
-     * rather than repeated.
-     */
-    widgetbar_mount({ label = 'AI', title = 'TVAgent' } = {}) {
-      if (wb.el && document.contains(wb.el)) return { ok: true, pageId: PAGE_ID };
-
-      const L = layout();
-      const content = document.querySelector('.widgetbar-pagescontent');
-      if (!content) throw new Error('Widget bar page container not found.');
-
-      const before = new Set(Array.prototype.slice.call(content.children));
-      const page = L.createPage();
-      const el = Array.prototype.find.call(content.children, (c) => !before.has(c));
-      if (!el) throw new Error('createPage() added no page element.');
-
-      try {
-        page.name = 'tva_agent';
-      } catch (e) {
-        log('page name is read-only in this build');
-      }
-
-      el.id = PAGE_ID;
-      wb.page = page;
-      wb.el = el;
-
-      const { toolbar, btn } = injectButton(label, title);
-      watchToolbar(toolbar, btn);
-      watchActive();
-
-      return { ok: true, pageId: PAGE_ID };
-    },
-
-    /**
-     * Activation goes through switchPage, never onTabClick — the latter calls
-     * saveToTVSettings() and would write our page into the account's saved
-     * widget bar layout.
-     */
-    widgetbar_activate() {
-      const L = layout();
-      const index = ourIndex();
-      if (index === -1) throw new Error('Widget bar page is not mounted.');
-      // On page identity, not visibility: our page can be active while the
-      // bar is minimized.
-      if (index !== L.activeIndex) {
-        wb.prevPage = L.pages[L.activeIndex] || null;
-        wb.prevMinimized = !!L.isMinimized.value();
-      }
-      L.switchPage(index);
-      L.setMinimizedState(false);
-      return { ok: true };
-    },
-
-    widgetbar_deactivate() {
-      const L = layout();
-      // Only when we are the one showing; detachment (-1) is excluded
-      // explicitly.
-      const index = ourIndex();
-      if (index === -1 || index !== L.activeIndex) return { ok: true };
-      if (wb.prevPage) L.switchPage(wb.prevPage);
-      if (wb.prevMinimized) L.setMinimizedState(true);
-      return { ok: true };
-    },
-
-    widgetbar_state() {
-      return { active: isActive(), minimized: !!layout().isMinimized.value() };
-    },
+    widgetbar_mount: wbMount,
+    widgetbar_activate: wbActivate,
+    widgetbar_deactivate: wbDeactivate,
+    widgetbar_state: wbState,
 
     // ---- context ----------------------------------------------------------
 
@@ -627,19 +772,6 @@
     },
   };
 
-  // A page left active at unload would be saved into the account's widget bar
-  // layout and come back as a tab with nothing behind it.
-  window.addEventListener('beforeunload', () => {
-    if (!wb.page) return;
-    try {
-      const L = layout();
-      if (isActive()) HANDLERS.widgetbar_deactivate();
-      L.removePage(wb.page);
-    } catch (e) {
-      /* the page is going away anyway */
-    }
-  });
-
   // ---------------------------------------------------------------- bridge
 
   window.addEventListener('message', async (event) => {
@@ -673,7 +805,10 @@
   window.__tvAgent = {
     call: (m, p) => HANDLERS[m](p || {}),
     methods: Object.keys(HANDLERS),
-    __adopt: (page) => {
+    // Adopts a page the way mount does, minus the DOM, so the state machine
+    // can be driven without a toolbar.
+    __adopt: (page, title) => {
+      preparePage(page, title || 'TVAgent');
       wb.page = page;
       watchActive();
     },
