@@ -48,7 +48,7 @@
 }
 
 #tva-root.tva-hidden,
-#tva-root .tva-hidden { display: none; }
+#tva-root .tva-hidden { display: none !important; }
 #tva-root * { box-sizing: border-box; font-family: inherit; }
 #tva-root .tva-spacer { flex: 1 1 auto; }
 
@@ -97,7 +97,6 @@
   font-size: 12px;
   color: var(--tva-fg-dim);
   border-bottom: 1px solid var(--tva-border);
-  padding-bottom: 8px;
   flex: 0 0 auto;
 }
 #tva-root .tva-context-where { color: var(--tva-fg); }
