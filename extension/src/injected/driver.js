@@ -135,6 +135,7 @@
     prevPage: null,
     prevMinimized: false,
     watching: false,
+    // Must start undefined, not false — the first sync may legitimately be false.
     lastActive: undefined,
   };
 
@@ -278,8 +279,11 @@
     widgetbar_deactivate() {
       const L = layout();
       // Only put things back if we are the one showing — the user may have
-      // opened a native tab since, and restoring then would move them.
-      if (ourIndex() !== L.activeIndex) return { ok: true };
+      // opened a native tab since, and restoring then would move them. The
+      // index check alone is fooled when we are detached and nothing is
+      // active (both -1), so detachment is excluded explicitly.
+      const index = ourIndex();
+      if (index === -1 || index !== L.activeIndex) return { ok: true };
       if (wb.prevPage) L.switchPage(wb.prevPage);
       if (wb.prevMinimized) L.setMinimizedState(true);
       return { ok: true };

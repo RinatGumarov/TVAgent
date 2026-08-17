@@ -26,7 +26,11 @@ function check(name, got, want) {
   );
 }
 
-/** Наблюдаемое значение с тем же интерфейсом, что у TradingView. */
+/**
+ * Наблюдаемое значение с тем же интерфейсом, что у TradingView. Без аргумента
+ * ведёт себя как `new WatchedValue()` — .value() === undefined, как у
+ * реального layout.isMinimized до первого syncWidth (layout.ts:65).
+ */
 function watched(value) {
   const subs = [];
   return {
@@ -79,21 +83,14 @@ function makeLayout(pageCount = 3) {
       L.calls.push(`minimize:${nv}`);
       L.isMinimized.setValue(nv);
     },
-    // Как хост: сплайсит страницу и, если она была активной, теряет активную
-    // страницу (switchPage(-1)); если удалённая лежала перед активной, индекс
-    // активной страницы бесшумно сдвигается — layout.ts:369-381.
     removePage(p) {
       const i = pages.indexOf(p);
       if (i === -1) return;
       pages.splice(i, 1);
       L.calls.push('removePage');
-      if (i === L.activeIndex) {
-        L.activeIndex = -1;
-        L.activePageIndex.setValue(-1);
-      } else if (i < L.activeIndex) {
-        L.activeIndex -= 1;
-        L.activePageIndex.setValue(L.activeIndex);
-      }
+      // Хост правит только случай "удалили активную": switchPage(i-1).
+      // Удаление страницы ПЕРЕД активной он не компенсирует — layout.ts:369-381.
+      if (i === L.activeIndex) L.switchPage(i - 1);
     },
     onTabClick() {
       L.calls.push('onTabClick');
@@ -263,10 +260,12 @@ console.log('\n— переходы —');
 }
 
 {
-  // Нашу страницу выкинули из pages (removePage/пустой demarshal) — activate
-  // должен отказать, а state не должен путать "нас нет" (-1) с "активной
-  // страницы нет" (тоже -1) и объявлять себя активным.
-  const L = makeLayout();
+  // Нашу страницу выкинули из pages, пока она была активной в позиции 0 —
+  // единственный случай, в котором хост реально доводит activeIndex до -1
+  // (switchPage(i - 1) при i === 0, layout.ts:379-381). activate должен
+  // отказать, а state не должен путать "нас нет" (-1) с "активной страницы
+  // нет" (тоже -1) и объявлять себя активным.
+  const L = makeLayout(0);
   const { call, adopt } = load({ layout: L });
   const page = L.createPage();
   adopt(page);
@@ -317,6 +316,24 @@ console.log('\n— состояние —');
   L.switchPage(0);
   L.switchPage(2);
   check('повтор того же active=false не дублирует событие', posted.filter((m) => m.source === 'tva-evt').length, 1);
+}
+
+{
+  // Настоящий layout.isMinimized рождается без значения — new WatchedValue()
+  // (layout.ts:65) — и остаётся undefined, пока syncWidth ничего не выставил.
+  // widgetbar_state и захват prevMinimized обязаны привести undefined к
+  // false, а не протащить его дальше.
+  const L = makeLayout();
+  L.isMinimized = watched();
+  const { call, adopt } = load({ layout: L });
+  const page = L.createPage();
+  adopt(page);
+
+  check('minimized === undefined читается как false', (await call('widgetbar_state')).minimized, false);
+
+  await call('widgetbar_activate');
+  await call('widgetbar_deactivate');
+  check('prevMinimized из undefined не пытается свернуть бар обратно', L.calls.includes('minimize:true'), false);
 }
 
 console.log(failed ? `\n${failed} провалов\n` : '\nвсё зелёное\n');
