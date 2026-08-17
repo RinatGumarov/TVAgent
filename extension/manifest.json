@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "TVAgent — AI Agent for TradingView",
+  "version": "0.1.0",
+  "description": "Claude-powered agent that reads and drives TradingView through its native semantic API.",
+
+  "permissions": ["storage"],
+
+  "host_permissions": [
+    "https://*.tradingview.com/*",
+    "https://api.anthropic.com/*",
+    "http://localhost:11434/*",
+    "http://127.0.0.1:11434/*"
+  ],
+
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://*.tradingview.com/chart/*"],
+      "js": ["src/injected/driver.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.tradingview.com/chart/*"],
+      "js": [
+        "src/content/bridge.js",
+        "src/content/tools.js",
+        "src/content/agent.js",
+        "src/content/panel.js"
+      ],
+      "css": ["src/content/panel.css"],
+      "world": "ISOLATED",
+      "run_at": "document_idle"
+    }
+  ],
+
+  "action": {
+    "default_title": "Toggle TVAgent panel"
+  }
+}
