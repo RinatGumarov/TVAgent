@@ -132,6 +132,7 @@
     prevPage: null,
     prevMinimized: false,
     watching: false,
+    // Must start undefined, not false — the first sync may legitimately be false.
     lastActive: undefined,
   };
 
@@ -269,7 +270,8 @@
       const L = layout();
       // Only when we are the one showing; detachment (-1) is excluded
       // explicitly.
-      if (ourIndex() !== L.activeIndex) return { ok: true };
+      const index = ourIndex();
+      if (index === -1 || index !== L.activeIndex) return { ok: true };
       if (wb.prevPage) L.switchPage(wb.prevPage);
       if (wb.prevMinimized) L.setMinimizedState(true);
       return { ok: true };
