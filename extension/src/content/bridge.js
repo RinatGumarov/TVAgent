@@ -9,15 +9,23 @@ window.TVAgentBridge = (() => {
 
   const REQ = 'tva-req';
   const RES = 'tva-res';
+  const EVT = 'tva-evt';
   const ORIGIN = window.location.origin;
   const DEFAULT_TIMEOUT = 45000;
 
   const pending = new Map();
+  const listeners = new Map();
   let seq = 0;
 
   window.addEventListener('message', (event) => {
     if (event.source !== window || event.origin !== ORIGIN) return;
     const msg = event.data;
+
+    if (msg && msg.source === EVT && typeof msg.type === 'string') {
+      (listeners.get(msg.type) || []).forEach((fn) => fn(msg.payload));
+      return;
+    }
+
     if (!msg || msg.source !== RES || !pending.has(msg.id)) return;
 
     const { resolve, reject, timer } = pending.get(msg.id);
@@ -40,6 +48,12 @@ window.TVAgentBridge = (() => {
     });
   }
 
+  /** Driver-pushed events. Unlike call(), these arrive unsolicited. */
+  function on(type, handler) {
+    if (!listeners.has(type)) listeners.set(type, []);
+    listeners.get(type).push(handler);
+  }
+
   /**
    * The driver may not have loaded yet when the panel boots, and the chart
    * answers symbol/resolution only once TradingView has finished loading — so
@@ -60,5 +74,5 @@ window.TVAgentBridge = (() => {
     return last || { tradingViewApi: false, warnings: ['Driver did not respond.'] };
   }
 
-  return { call, probeWhenReady };
+  return { call, on, probeWhenReady };
 })();
