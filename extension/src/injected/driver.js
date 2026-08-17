@@ -12,6 +12,7 @@
 
   const REQ = 'tva-req';
   const RES = 'tva-res';
+  const EVT = 'tva-evt';
   const ORIGIN = window.location.origin;
 
   const log = (...a) => {
@@ -118,6 +119,63 @@
     return out;
   }
 
+  // ---------------------------------------------------------------- widgetbar
+
+  const PAGE_ID = 'tva-widgetbar-page';
+
+  /** Unsolicited push to the content script. Requests still use RES. */
+  function emit(type, payload) {
+    window.postMessage({ source: EVT, type, payload }, ORIGIN);
+  }
+
+  const wb = {
+    page: null,
+    el: null,
+    button: null,
+    prevIndex: -1,
+    prevMinimized: false,
+    watching: false,
+  };
+
+  function layout() {
+    const bar = window.widgetbar;
+    if (!bar || !bar.layout) {
+      throw new Error('TradingView widget bar is not on this page (anonymous session?).');
+    }
+    return bar.layout;
+  }
+
+  function ourIndex() {
+    return wb.page ? layout().pages.indexOf(wb.page) : -1;
+  }
+
+  function isActive() {
+    if (!wb.page) return false;
+    const L = layout();
+    return ourIndex() === L.activeIndex && !L.isMinimized.value();
+  }
+
+  /**
+   * Keeps our tab button and the content script in step with whatever the user
+   * does to the widget bar, including opening one of TradingView's own tabs.
+   */
+  function syncActive() {
+    const active = isActive();
+    if (wb.button) {
+      wb.button.classList.toggle('tva-tab-on', active);
+      wb.button.setAttribute('aria-pressed', String(active));
+    }
+    emit('widgetbar-active', { active });
+  }
+
+  function watchActive() {
+    if (wb.watching) return;
+    const L = layout();
+    L.activePageIndex.subscribe(syncActive);
+    L.isMinimized.subscribe(syncActive);
+    wb.watching = true;
+  }
+
   // ---------------------------------------------------------------- handlers
 
   const HANDLERS = {
@@ -179,6 +237,42 @@
       }
 
       return report;
+    },
+
+    /**
+     * Activation goes through switchPage, never onTabClick — the latter calls
+     * saveToTVSettings() and would write our page into the account's saved
+     * widget bar layout.
+     */
+    widgetbar_activate() {
+      const L = layout();
+      const index = ourIndex();
+      if (index === -1) throw new Error('Widget bar page is not mounted.');
+      if (!isActive()) {
+        wb.prevIndex = L.activeIndex;
+        wb.prevMinimized = L.isMinimized.value();
+      }
+      L.switchPage(index);
+      L.setMinimizedState(false);
+      return { ok: true };
+    },
+
+    widgetbar_deactivate() {
+      const L = layout();
+      if (wb.prevIndex >= 0 && wb.prevIndex < L.pages.length) L.switchPage(wb.prevIndex);
+      if (wb.prevMinimized) L.setMinimizedState(true);
+      return { ok: true };
+    },
+
+    widgetbar_state() {
+      return { active: isActive(), minimized: layout().isMinimized.value() };
+    },
+
+    /** Test seam: adopt a page created by the harness. Never called in the extension. */
+    __test_adopt({ page }) {
+      wb.page = page;
+      watchActive();
+      return { ok: true };
     },
 
     // ---- context ----------------------------------------------------------
