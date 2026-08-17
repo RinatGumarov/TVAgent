@@ -70,9 +70,10 @@ window.TVAgentMount = (() => {
   function bindActiveListener() {
     if (activeListenerBound) return;
     activeListenerBound = true;
-    bridge.on('widgetbar-active', ({ active }) =>
-      activeHandlers.forEach((fn) => fn(active))
-    );
+    bridge.on('widgetbar-active', ({ active }) => {
+      if (mode !== 'native') return;
+      activeHandlers.forEach((fn) => fn(active));
+    });
   }
 
   /**
