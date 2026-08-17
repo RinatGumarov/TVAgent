@@ -154,16 +154,16 @@ const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, sel, body]) => (
   display: (body.match(/display\s*:\s*([^;]+)/) || [])[1]?.trim(),
 }));
 
-/** Поле чужого провайдера: <div class="tva-field tva-hidden" data-for="anthropic"> */
+/** Группа чужого провайдера: <div class="tva-set-group tva-hidden" data-for="anthropic"> */
 const hiddenField = [
   { tag: 'div', id: 'tva-root', classes: [] },
   { tag: 'div', id: 'tva-settings', classes: ['tva-settings'] },
-  { tag: 'div', id: null, classes: ['tva-field', 'tva-hidden'] },
+  { tag: 'div', id: null, classes: ['tva-set-group', 'tva-hidden'] },
 ];
 const visibleField = [
   hiddenField[0],
   hiddenField[1],
-  { tag: 'div', id: null, classes: ['tva-field'] },
+  { tag: 'div', id: null, classes: ['tva-set-group'] },
 ];
 
 const displayFor = (path) => {
