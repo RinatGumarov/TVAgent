@@ -39,11 +39,30 @@
   --tva-warn: var(--color-static-warning, #ff9800);
 }
 
-#tva-root.tva-hidden { display: none; }
+#tva-root.tva-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: 400px;
+  min-width: 300px;
+  max-width: 70vw;
+  z-index: 2147483000;
+  border-left: 1px solid var(--tva-border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.28);
+}
 
+/* Inside a widget bar page TradingView owns the box: width comes from the
+   resize handle, height from the pages container. */
+#tva-root.tva-native {
+  position: absolute;
+  inset: 0;
+}
+
+#tva-root.tva-hidden,
+#tva-root .tva-hidden { display: none; }
 #tva-root * { box-sizing: border-box; font-family: inherit; }
-
-/* ---------------------------------------------------------------- resizer */
+#tva-root .tva-spacer { flex: 1 1 auto; }
 
 #tva-root .tva-resizer {
   position: absolute;
@@ -61,85 +80,96 @@
 #tva-root .tva-header {
   display: flex;
   align-items: center;
+  gap: 4px;
+  height: 38px;
+  padding: 0 6px 0 12px;
+  flex: 0 0 auto;
+}
+#tva-root .tva-brand { font-size: 14px; font-weight: 600; }
+#tva-root .tva-icon {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--tva-fg-dim);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1;
+}
+#tva-root .tva-icon:hover { background: var(--tva-border); color: var(--tva-fg); }
+
+/* ---------------------------------------------------------------- context */
+
+#tva-root .tva-context {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--tva-border);
-  background: var(--tva-bg-soft);
-  flex: 0 0 auto;
-}
-#tva-root .tva-title { font-weight: 600; font-size: 13px; letter-spacing: 0.2px; }
-#tva-root .tva-dot {
-  width: 8px; height: 8px; border-radius: 50%;
-  background: var(--tva-fg-dim); flex: 0 0 auto;
-}
-#tva-root .tva-dot.ok { background: var(--tva-ok); }
-#tva-root .tva-dot.warn { background: var(--tva-warn); }
-#tva-root .tva-dot.err { background: var(--tva-err); }
-#tva-root .tva-spacer { flex: 1 1 auto; }
-
-#tva-root .tva-iconbtn {
-  background: none; border: none; cursor: pointer;
-  color: var(--tva-fg-dim); padding: 4px 6px; border-radius: 4px;
-  font-size: 13px; line-height: 1;
-}
-#tva-root .tva-iconbtn:hover { background: var(--tva-border); color: var(--tva-fg); }
-
-/* ---------------------------------------------------------------- settings */
-
-#tva-root .tva-settings {
-  padding: 12px;
-  border-bottom: 1px solid var(--tva-border);
-  background: var(--tva-bg-soft);
-  flex: 0 0 auto;
-}
-#tva-root .tva-settings.tva-hidden { display: none; }
-/* Also hides the inactive provider's fields — panel.js toggles this class. */
-#tva-root .tva-hidden { display: none; }
-#tva-root .tva-field { margin-bottom: 10px; }
-#tva-root .tva-field:last-child { margin-bottom: 0; }
-#tva-root .tva-label {
-  display: block; font-size: 11px; color: var(--tva-fg-dim);
-  margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px;
-}
-#tva-root input[type="text"],
-#tva-root input[type="password"],
-#tva-root select,
-#tva-root textarea {
-  width: 100%;
-  background: var(--tva-bg);
-  color: var(--tva-fg);
-  border: 1px solid var(--tva-border);
-  border-radius: 5px;
-  padding: 7px 9px;
+  padding: 0 12px 8px;
   font-size: 12px;
-  outline: none;
+  color: var(--tva-fg-dim);
+  border-bottom: 1px solid var(--tva-border);
+  padding-bottom: 8px;
+  flex: 0 0 auto;
 }
-#tva-root input:focus, #tva-root select:focus, #tva-root textarea:focus {
-  border-color: var(--tva-accent);
+#tva-root .tva-context-where { color: var(--tva-fg); }
+#tva-root .tva-status { display: inline-flex; align-items: center; gap: 6px; }
+#tva-root .tva-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tva-fg-dim);
 }
-#tva-root .tva-check { display: flex; align-items: center; gap: 7px; font-size: 12px; cursor: pointer; }
-#tva-root .tva-check input { width: auto; }
-#tva-root .tva-hint { font-size: 11px; color: var(--tva-fg-dim); margin-top: 5px; }
+#tva-root .tva-status.ok .tva-dot { background: var(--tva-ok); }
+#tva-root .tva-status.warn .tva-dot { background: var(--tva-warn); }
+#tva-root .tva-status.err .tva-dot { background: var(--tva-err); }
 
-/* ---------------------------------------------------------------- messages */
+/* ---------------------------------------------------------------- body */
 
-#tva-root .tva-messages {
+#tva-root .tva-body {
   flex: 1 1 auto;
   overflow-y: auto;
   overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+}
+#tva-root .tva-list {
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
+#tva-root .tva-empty { margin-top: auto; padding: 12px; }
+#tva-root .tva-empty h2 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
+#tva-root .tva-empty p { font-size: 13px; color: var(--tva-fg-dim); margin: 0 0 12px; }
+#tva-root .tva-suggestions { display: flex; flex-direction: column; gap: 6px; }
+#tva-root .tva-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: none;
+  border: 1px solid var(--tva-border);
+  border-radius: 8px;
+  color: var(--tva-fg);
+  padding: 10px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+#tva-root .tva-suggestion span { flex: 1 1 auto; }
+#tva-root .tva-suggestion i { font-style: normal; color: var(--tva-fg-dim); }
+#tva-root .tva-suggestion:hover { border-color: var(--tva-accent); }
+
+/* ---------------------------------------------------------------- messages */
+
 #tva-root .tva-msg { max-width: 100%; word-wrap: break-word; overflow-wrap: anywhere; }
 #tva-root .tva-msg.user {
   align-self: flex-end;
-  background: var(--tva-accent);
-  color: #fff;
+  background: var(--tva-accent-tint);
+  color: var(--tva-fg);
   padding: 8px 11px;
-  border-radius: 12px 12px 3px 12px;
+  border-radius: 8px;
   max-width: 88%;
   white-space: pre-wrap;
 }
@@ -147,9 +177,8 @@
 #tva-root .tva-msg.error {
   align-self: stretch;
   color: var(--tva-err);
-  background: rgba(239, 83, 80, 0.1);
-  border: 1px solid rgba(239, 83, 80, 0.35);
-  border-radius: 6px;
+  border: 1px solid var(--tva-err);
+  border-radius: 8px;
   padding: 8px 10px;
   white-space: pre-wrap;
 }
@@ -158,68 +187,78 @@
   color: var(--tva-fg-dim);
   background: var(--tva-bg-soft);
   border: 1px solid var(--tva-border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 8px 10px;
   font-size: 12px;
   white-space: pre-wrap;
 }
-#tva-root .tva-msg code {
+#tva-root code {
   background: var(--tva-bg-soft);
   border: 1px solid var(--tva-border);
-  border-radius: 3px;
+  border-radius: 4px;
   padding: 1px 4px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 11.5px;
 }
-#tva-root .tva-msg pre {
+#tva-root pre {
   background: var(--tva-bg-soft);
   border: 1px solid var(--tva-border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 9px 10px;
   overflow-x: auto;
   margin: 6px 0;
   white-space: pre;
 }
-#tva-root .tva-msg pre code { background: none; border: none; padding: 0; }
+#tva-root pre code { background: none; border: none; padding: 0; }
 
-/* ---------------------------------------------------------------- trace */
+/* ---------------------------------------------------------------- run */
 
-#tva-root details.tva-trace {
-  background: var(--tva-bg-soft);
-  border: 1px solid var(--tva-border);
-  border-radius: 6px;
-  font-size: 12px;
-  align-self: stretch;
-}
-#tva-root details.tva-trace > summary {
+#tva-root details.tva-run { align-self: stretch; font-size: 12px; }
+#tva-root details.tva-run > summary {
   cursor: pointer;
-  padding: 6px 10px;
   list-style: none;
   display: flex;
   align-items: center;
   gap: 7px;
   color: var(--tva-fg-dim);
+  padding: 2px 0;
 }
-#tva-root details.tva-trace > summary::-webkit-details-marker { display: none; }
-#tva-root details.tva-trace[open] > summary { border-bottom: 1px solid var(--tva-border); }
-#tva-root .tva-tool-name {
+#tva-root details.tva-run > summary::-webkit-details-marker { display: none; }
+#tva-root .tva-run-mark {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid var(--tva-fg-dim);
+}
+#tva-root .tva-run-mark.done { border-color: var(--tva-ok); background: var(--tva-ok); }
+#tva-root .tva-run-body {
+  border-left: 1px solid var(--tva-border);
+  margin: 4px 0 0 5px;
+  padding-left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+#tva-root .tva-think {
+  color: var(--tva-fg-dim);
+  white-space: pre-wrap;
+  font-size: 11.5px;
+}
+#tva-root .tva-call-head { display: flex; align-items: center; gap: 7px; }
+#tva-root .tva-call-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--tva-fg);
   font-size: 11.5px;
 }
-#tva-root .tva-status { margin-left: auto; font-size: 11px; }
-#tva-root .tva-status.ok { color: var(--tva-ok); }
-#tva-root .tva-status.err { color: var(--tva-err); }
-#tva-root .tva-status.pending { color: var(--tva-fg-dim); }
-#tva-root .tva-trace-body {
-  padding: 8px 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+#tva-root .tva-call-status { margin-left: auto; font-size: 11px; color: var(--tva-fg-dim); }
+#tva-root .tva-call-status.ok { color: var(--tva-ok); }
+#tva-root .tva-call-status.err { color: var(--tva-err); }
+#tva-root .tva-call-body {
   font-size: 11px;
   color: var(--tva-fg-dim);
   white-space: pre-wrap;
-  overflow-x: auto;
   max-height: 260px;
-  overflow-y: auto;
+  overflow: auto;
 }
 
 /* ---------------------------------------------------------------- confirm */
@@ -227,55 +266,146 @@
 #tva-root .tva-confirm {
   align-self: stretch;
   border: 1px solid var(--tva-warn);
-  background: rgba(245, 166, 35, 0.09);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 10px;
   font-size: 12px;
 }
+#tva-root .tva-confirm-head { margin-bottom: 4px; }
 #tva-root .tva-confirm-actions { display: flex; gap: 8px; margin-top: 9px; }
+#tva-root .tva-confirm-outcome { margin-top: 6px; color: var(--tva-fg-dim); }
 #tva-root .tva-btn {
   border: 1px solid var(--tva-border);
-  background: var(--tva-bg-soft);
+  background: none;
   color: var(--tva-fg);
   padding: 5px 13px;
-  border-radius: 5px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
 }
 #tva-root .tva-btn:hover { border-color: var(--tva-accent); }
-#tva-root .tva-btn.primary { background: var(--tva-accent); border-color: var(--tva-accent); color: #fff; }
+#tva-root .tva-btn.primary {
+  background: var(--tva-accent);
+  border-color: var(--tva-accent);
+  color: #fff;
+}
 
 /* ---------------------------------------------------------------- composer */
 
-#tva-root .tva-composer {
-  border-top: 1px solid var(--tva-border);
-  padding: 10px 12px;
-  background: var(--tva-bg-soft);
-  flex: 0 0 auto;
+#tva-root .tva-composer { padding: 8px 12px 10px; flex: 0 0 auto; }
+#tva-root .tva-field {
+  border: 1px solid var(--tva-border);
+  border-radius: 8px;
+  padding: 8px 8px 6px;
 }
-#tva-root .tva-composer textarea {
+#tva-root .tva-field:focus-within { border-color: var(--tva-accent); }
+#tva-root .tva-field textarea {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--tva-fg);
   resize: none;
-  min-height: 56px;
-  max-height: 160px;
   font-size: 13px;
   line-height: 1.5;
+  max-height: 160px;
 }
-#tva-root .tva-composer-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-#tva-root .tva-composer-hint { font-size: 11px; color: var(--tva-fg-dim); flex: 1 1 auto; }
-
-#tva-root .tva-suggestions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 9px; }
+#tva-root .tva-field-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 #tva-root .tva-chip {
-  border: 1px solid var(--tva-border);
-  background: var(--tva-bg);
+  border: none;
+  background: none;
   color: var(--tva-fg-dim);
-  border-radius: 20px;
-  padding: 4px 10px;
-  font-size: 11.5px;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 4px;
   cursor: pointer;
 }
-#tva-root .tva-chip:hover { border-color: var(--tva-accent); color: var(--tva-fg); }
+#tva-root .tva-chip:hover { color: var(--tva-fg); background: var(--tva-border); }
+#tva-root .tva-chip-hint { font-size: 12px; color: var(--tva-fg-dim); }
+#tva-root .tva-send {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: var(--tva-accent);
+  color: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+#tva-root .tva-send:disabled { background: var(--tva-border); color: var(--tva-fg-dim); cursor: default; }
+#tva-root .tva-send.stop { background: var(--tva-fg-dim); }
+#tva-root .tva-composer-hint {
+  font-size: 11px;
+  color: var(--tva-fg-dim);
+  margin: 6px 0 0;
+}
+
+/* ---------------------------------------------------------------- settings */
+
+#tva-root .tva-settings { padding: 12px; }
+#tva-root .tva-set-group { margin-bottom: 14px; }
+#tva-root .tva-set-label {
+  display: block;
+  font-size: 11px;
+  color: var(--tva-fg-dim);
+  margin-bottom: 6px;
+}
+#tva-root .tva-set-hint { font-size: 11px; color: var(--tva-fg-dim); margin: 5px 0 0; }
+#tva-root .tva-settings input[type="text"],
+#tva-root .tva-settings input[type="password"] {
+  width: 100%;
+  background: none;
+  color: var(--tva-fg);
+  border: 1px solid var(--tva-border);
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 12px;
+  outline: none;
+}
+#tva-root .tva-settings input:focus { border-color: var(--tva-accent); }
+#tva-root .tva-seg {
+  display: flex;
+  border: 1px solid var(--tva-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+#tva-root .tva-seg button {
+  flex: 1 1 0;
+  border: none;
+  border-right: 1px solid var(--tva-border);
+  background: none;
+  color: var(--tva-fg-dim);
+  padding: 6px 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+#tva-root .tva-seg button:last-child { border-right: none; }
+#tva-root .tva-seg button.on { background: var(--tva-accent-tint); color: var(--tva-accent); }
+#tva-root .tva-check { display: flex; align-items: center; gap: 7px; font-size: 12px; cursor: pointer; }
+
+/* ---------------------------------------------------------------- tab button
+
+   Lives outside #tva-root — it is injected into TradingView's own toolbar, so
+   it inherits their tokens directly. Only the badge is ours; the 44px cell and
+   every hashed class come from the button we cloned. */
+
+.tva-tab .tva-tab-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: 4px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--color-text-secondary, #8c8c8c);
+}
+.tva-tab:hover .tva-tab-badge {
+  background: var(--color-background-secondary, #2e2e2e);
+  color: var(--color-text-primary, #dbdbdb);
+}
+.tva-tab.tva-tab-on .tva-tab-badge {
+  background: var(--color-background-special-secondary, #132042);
+  color: var(--color-tv-blue-500, #2962ff);
+}
