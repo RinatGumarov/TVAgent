@@ -3,7 +3,9 @@
  *
  * Гоняет настоящий driver.js против поддельного window.widgetbar. Проверяет то,
  * что дорого сломать: активация не должна ходить через onTabClick (он пишет наш
- * лист в настройки аккаунта), а закрытие — возвращать ту вкладку, что была.
+ * лист в настройки аккаунта), закрытие — возвращать ту вкладку, что была, а не
+ * дёргать пользователя, если он сам ушёл на другую вкладку, и хранит для этого
+ * саму страницу, а не индекс, который сдвигается при удалении чужих страниц.
  *
  *   node widgetbar-test.mjs
  */
@@ -39,8 +41,10 @@ function watched(value) {
 }
 
 /**
- * Поддельный layout. switchPage и setMinimizedState ведут себя как настоящие;
- * onTabClick только помечается вызванным — драйвер не должен его трогать.
+ * Поддельный layout. switchPage и setMinimizedState ведут себя как настоящие
+ * (в частности, setMinimizedState — как layout.ts:263-267 — молчит, если
+ * значение не поменялось), onTabClick только помечается вызванным — драйвер
+ * не должен его трогать.
  */
 function makeLayout(pageCount = 3) {
   const pages = Array.from({ length: pageCount }, (_, i) => ({ name: `native_${i}` }));
@@ -56,18 +60,40 @@ function makeLayout(pageCount = 3) {
       L.calls.push('createPage');
       return page;
     },
-    switchPage(i) {
+    // Реальный switchPage принимает и индекс, и объект страницы; для
+    // отсоединённой страницы (pages.indexOf === -1) тихо ничего не делает —
+    // layout.ts:287-292.
+    switchPage(pageOrIndex) {
+      let i = pageOrIndex;
+      if (typeof pageOrIndex !== 'number') {
+        i = pages.indexOf(pageOrIndex);
+        if (i === -1) return;
+      }
       L.calls.push(`switchPage:${i}`);
       L.activeIndex = i;
       L.activePageIndex.setValue(i);
     },
     setMinimizedState(v) {
-      L.calls.push(`minimize:${v}`);
-      L.isMinimized.setValue(!!v);
+      const nv = !!v;
+      if (L.isMinimized.value() === nv) return;
+      L.calls.push(`minimize:${nv}`);
+      L.isMinimized.setValue(nv);
     },
+    // Как хост: сплайсит страницу и, если она была активной, теряет активную
+    // страницу (switchPage(-1)); если удалённая лежала перед активной, индекс
+    // активной страницы бесшумно сдвигается — layout.ts:369-381.
     removePage(p) {
+      const i = pages.indexOf(p);
+      if (i === -1) return;
+      pages.splice(i, 1);
       L.calls.push('removePage');
-      pages.splice(pages.indexOf(p), 1);
+      if (i === L.activeIndex) {
+        L.activeIndex = -1;
+        L.activePageIndex.setValue(-1);
+      } else if (i < L.activeIndex) {
+        L.activeIndex -= 1;
+        L.activePageIndex.setValue(L.activeIndex);
+      }
     },
     onTabClick() {
       L.calls.push('onTabClick');
@@ -107,7 +133,9 @@ function load({ layout, document: doc = makeDocument() }) {
     'performance',
     src
   )(win, doc, { getItem: () => null }, { now: () => 0 });
-  return { call: win.__tvAgent.call, posted, win };
+  // __adopt hangs off the debug export, not HANDLERS — it must not be reachable
+  // by posting a tva-req from page script.
+  return { call: win.__tvAgent.call, adopt: win.__tvAgent.__adopt, posted, win };
 }
 
 /** Хендлеры синхронные, поэтому бросают синхронно — .catch() их не поймает. */
@@ -139,20 +167,22 @@ console.log('\n— активация —');
 
 {
   const L = makeLayout();
-  const { call } = load({ layout: L });
+  const { call, adopt } = load({ layout: L });
   const page = L.createPage();
+  adopt(page);
   L.calls.length = 0;
-  call('__test_adopt', { page });
   await call('widgetbar_activate');
-  check('переключаемся на нашу страницу и разворачиваем', L.calls, ['switchPage:3', 'minimize:false']);
+  // Конечное состояние, не журнал вызовов — реальный setMinimizedState молчит,
+  // если значение не изменилось, и журнал не всегда покажет "minimize:false".
+  check('переключаемся на нашу страницу и разворачиваем', [L.activeIndex, L.isMinimized.value()], [3, false]);
   check('onTabClick не вызывался', L.calls.includes('onTabClick'), false);
 }
 
 {
   const L = makeLayout();
-  const { call } = load({ layout: L });
+  const { call, adopt } = load({ layout: L });
   const page = L.createPage();
-  call('__test_adopt', { page });
+  adopt(page);
   await call('widgetbar_activate');
   L.calls.length = 0;
   await call('widgetbar_deactivate');
@@ -162,22 +192,98 @@ console.log('\n— активация —');
 {
   const L = makeLayout();
   L.isMinimized.setValue(true);
-  const { call } = load({ layout: L });
+  const { call, adopt } = load({ layout: L });
   const page = L.createPage();
-  call('__test_adopt', { page });
+  adopt(page);
   await call('widgetbar_activate');
   L.calls.length = 0;
   await call('widgetbar_deactivate');
   check('свёрнутый бар остаётся свёрнутым', L.calls, ['switchPage:1', 'minimize:true']);
 }
 
+console.log('\n— переходы —');
+
+{
+  // Повторная активация не должна перезаписать запомненную чужую вкладку
+  // нашей собственной.
+  const L = makeLayout();
+  const { call, adopt } = load({ layout: L });
+  const page = L.createPage();
+  adopt(page);
+  await call('widgetbar_activate');
+  await call('widgetbar_activate');
+  await call('widgetbar_deactivate');
+  check('activate → activate → deactivate возвращает на вкладку пользователя', L.activeIndex, 1);
+}
+
+{
+  // Критический случай Fix 1: TradingView сворачивает бар при перетаскивании
+  // resizer'а ниже 50px (layout.ts:231-233) — это делает isActive() ложным,
+  // хотя активна по-прежнему наша страница. Старый код на повторный клик по
+  // нашей вкладке принимал "не активны" за чистую монету и терял вкладку
+  // пользователя навсегда.
+  const L = makeLayout();
+  const { call, adopt } = load({ layout: L });
+  const page = L.createPage();
+  adopt(page);
+  await call('widgetbar_activate');
+  L.setMinimizedState(true);
+  await call('widgetbar_activate');
+  await call('widgetbar_deactivate');
+  check('после сворачивания и повторного клика возвращаемся к вкладке пользователя', L.activeIndex, 1);
+}
+
+{
+  // Пользователь сам ушёл на нативную вкладку, пока наша была открыта, —
+  // деактивация не должна никуда его дёргать.
+  const L = makeLayout();
+  const { call, adopt } = load({ layout: L });
+  const page = L.createPage();
+  adopt(page);
+  await call('widgetbar_activate');
+  L.switchPage(0);
+  L.calls.length = 0;
+  await call('widgetbar_deactivate');
+  check('деактивация не трогает вкладку, выбранную пользователем', L.activeIndex, 0);
+  check('деактивация — no-op, если мы не активны', L.calls, []);
+}
+
+{
+  // Двойная деактивация: второй вызов ничего не должен двигать.
+  const L = makeLayout();
+  const { call, adopt } = load({ layout: L });
+  const page = L.createPage();
+  adopt(page);
+  await call('widgetbar_activate');
+  await call('widgetbar_deactivate');
+  L.calls.length = 0;
+  await call('widgetbar_deactivate');
+  check('deactivate → deactivate ничего не вызывает', L.calls, []);
+  check('индекс не изменился', L.activeIndex, 1);
+}
+
+{
+  // Нашу страницу выкинули из pages (removePage/пустой demarshal) — activate
+  // должен отказать, а state не должен путать "нас нет" (-1) с "активной
+  // страницы нет" (тоже -1) и объявлять себя активным.
+  const L = makeLayout();
+  const { call, adopt } = load({ layout: L });
+  const page = L.createPage();
+  adopt(page);
+  await call('widgetbar_activate');
+  L.removePage(page);
+  const err = await failure(() => call('widgetbar_activate'));
+  check('активация без страницы в pages отказывает', /not mounted/i.test(err), true);
+  check('state не путает -1 с -1', await call('widgetbar_state'), { active: false, minimized: false });
+}
+
 console.log('\n— состояние —');
 
 {
   const L = makeLayout();
-  const { call, posted } = load({ layout: L });
+  const { call, adopt, posted } = load({ layout: L });
   const page = L.createPage();
-  call('__test_adopt', { page });
+  adopt(page);
   await call('widgetbar_activate');
   const evt = posted.filter((m) => m.source === 'tva-evt').pop();
   check('активация шлёт событие', [evt.type, evt.payload], ['widgetbar-active', { active: true }]);
@@ -189,14 +295,28 @@ console.log('\n— состояние —');
 
 {
   const L = makeLayout();
-  const { call, posted } = load({ layout: L });
+  const { call, adopt, posted } = load({ layout: L });
   const page = L.createPage();
-  call('__test_adopt', { page });
+  adopt(page);
   await call('widgetbar_activate');
   posted.length = 0;
   L.switchPage(0);
   const evt = posted.filter((m) => m.source === 'tva-evt').pop();
   check('чужая вкладка гасит нашу', [evt.type, evt.payload], ['widgetbar-active', { active: false }]);
+}
+
+{
+  // De-dupe: повторное уведомление о том же значении не должно слать второе
+  // событие.
+  const L = makeLayout();
+  const { call, adopt, posted } = load({ layout: L });
+  const page = L.createPage();
+  adopt(page);
+  await call('widgetbar_activate');
+  posted.length = 0;
+  L.switchPage(0);
+  L.switchPage(2);
+  check('повтор того же active=false не дублирует событие', posted.filter((m) => m.source === 'tva-evt').length, 1);
 }
 
 console.log(failed ? `\n${failed} провалов\n` : '\nвсё зелёное\n');

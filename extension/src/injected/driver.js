@@ -129,12 +129,13 @@
   }
 
   const wb = {
-    page: null,
-    el: null,
+    page: null, // set by widgetbar_mount (task 3)
+    el: null, // set by widgetbar_mount (task 3)
     button: null,
-    prevIndex: -1,
+    prevPage: null,
     prevMinimized: false,
     watching: false,
+    lastActive: undefined,
   };
 
   function layout() {
@@ -152,20 +153,32 @@
   function isActive() {
     if (!wb.page) return false;
     const L = layout();
-    return ourIndex() === L.activeIndex && !L.isMinimized.value();
+    const index = ourIndex();
+    return index !== -1 && index === L.activeIndex && !L.isMinimized.value();
   }
 
   /**
    * Keeps our tab button and the content script in step with whatever the user
    * does to the widget bar, including opening one of TradingView's own tabs.
+   *
+   * Wrapped in try/catch: TradingView's WatchedValue.setValue already guards
+   * each listener with try/catch + logError (packages/common/src/watched-value.ts),
+   * so a throw here would not break the host's notification loop — but it would
+   * still desync our button silently and spam their telemetry.
    */
   function syncActive() {
-    const active = isActive();
-    if (wb.button) {
-      wb.button.classList.toggle('tva-tab-on', active);
-      wb.button.setAttribute('aria-pressed', String(active));
+    try {
+      const active = isActive();
+      if (active === wb.lastActive) return;
+      wb.lastActive = active;
+      if (wb.button) {
+        wb.button.classList.toggle('tva-tab-on', active);
+        wb.button.setAttribute('aria-pressed', String(active));
+      }
+      emit('widgetbar-active', { active });
+    } catch (e) {
+      log('syncActive failed', e);
     }
-    emit('widgetbar-active', { active });
   }
 
   function watchActive() {
@@ -239,6 +252,8 @@
       return report;
     },
 
+    // ---- widgetbar ----------------------------------------------------------
+
     /**
      * Activation goes through switchPage, never onTabClick — the latter calls
      * saveToTVSettings() and would write our page into the account's saved
@@ -248,9 +263,12 @@
       const L = layout();
       const index = ourIndex();
       if (index === -1) throw new Error('Widget bar page is not mounted.');
-      if (!isActive()) {
-        wb.prevIndex = L.activeIndex;
-        wb.prevMinimized = L.isMinimized.value();
+      // Capture on page identity, not visibility: our page can be the active
+      // one while the bar is minimized, and remembering ourselves as the
+      // previous tab would lose the user's real one for good.
+      if (index !== L.activeIndex) {
+        wb.prevPage = L.pages[L.activeIndex] || null;
+        wb.prevMinimized = !!L.isMinimized.value();
       }
       L.switchPage(index);
       L.setMinimizedState(false);
@@ -259,20 +277,16 @@
 
     widgetbar_deactivate() {
       const L = layout();
-      if (wb.prevIndex >= 0 && wb.prevIndex < L.pages.length) L.switchPage(wb.prevIndex);
+      // Only put things back if we are the one showing — the user may have
+      // opened a native tab since, and restoring then would move them.
+      if (ourIndex() !== L.activeIndex) return { ok: true };
+      if (wb.prevPage) L.switchPage(wb.prevPage);
       if (wb.prevMinimized) L.setMinimizedState(true);
       return { ok: true };
     },
 
     widgetbar_state() {
-      return { active: isActive(), minimized: layout().isMinimized.value() };
-    },
-
-    /** Test seam: adopt a page created by the harness. Never called in the extension. */
-    __test_adopt({ page }) {
-      wb.page = page;
-      watchActive();
-      return { ok: true };
+      return { active: isActive(), minimized: !!layout().isMinimized.value() };
     },
 
     // ---- context ----------------------------------------------------------
@@ -566,7 +580,15 @@
   });
 
   // Expose for manual poking from DevTools (not used by the extension).
-  window.__tvAgent = { call: (m, p) => HANDLERS[m](p || {}), methods: Object.keys(HANDLERS) };
+  window.__tvAgent = {
+    call: (m, p) => HANDLERS[m](p || {}),
+    methods: Object.keys(HANDLERS),
+    // TODO(task 3): delete once the test can drive widgetbar_mount instead.
+    __adopt: (page) => {
+      wb.page = page;
+      watchActive();
+    },
+  };
 
   log('driver ready,', Object.keys(HANDLERS).length, 'methods');
 })();
