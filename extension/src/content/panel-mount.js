@@ -38,7 +38,13 @@ window.TVAgentMount = (() => {
   async function nativeHost() {
     try {
       const res = await bridge.call('widgetbar_mount', { label: 'AI', title: 'TVAgent' });
-      return document.getElementById(res.pageId);
+      const el = document.getElementById(res.pageId);
+      if (!el) {
+        // The driver reports success only once its page element is in the
+        // document; say so if that ever fails.
+        console.info('[TVAgent] widget bar mount reported success but its page element is not in the document, falling back to the overlay.');
+      }
+      return el;
     } catch (err) {
       console.info('[TVAgent] widget bar unavailable, falling back to the overlay:', err.message);
       return null;

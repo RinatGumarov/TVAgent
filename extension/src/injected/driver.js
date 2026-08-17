@@ -150,6 +150,36 @@
     return bar.layout;
   }
 
+  /**
+   * True once everything a mount needs exists: window.widgetbar, its layout,
+   * and the right-toolbar node the button is cloned from.
+   */
+  function widgetBarPresent() {
+    const bar = window.widgetbar;
+    return !!(bar && bar.layout && document.querySelector('[data-name="right-toolbar"]'));
+  }
+
+  const WIDGETBAR_WAIT_ATTEMPTS = 40;
+  const WIDGETBAR_POLL_INTERVAL_MS = 200;
+
+  /**
+   * Waits for the widget bar to be mountable, or rejects at once when there
+   * will never be one.
+   */
+  async function waitForWidgetBar() {
+    if (widgetBarPresent()) return;
+    if (!window.is_authenticated) {
+      throw new Error('TradingView widget bar is not on this page (anonymous session?).');
+    }
+    for (let i = 0; i < WIDGETBAR_WAIT_ATTEMPTS; i++) {
+      await new Promise((r) => setTimeout(r, WIDGETBAR_POLL_INTERVAL_MS));
+      if (widgetBarPresent()) return;
+    }
+    throw new Error(
+      `Timed out waiting for the TradingView widget bar to appear (waited ${WIDGETBAR_WAIT_ATTEMPTS * WIDGETBAR_POLL_INTERVAL_MS}ms).`
+    );
+  }
+
   function ourIndex() {
     return wb.page ? layout().pages.indexOf(wb.page) : -1;
   }
@@ -368,10 +398,12 @@
    * Creates the widget bar page. A mount already in flight is shared rather
    * than repeated.
    */
-  function wbMount({ label = 'AI', title = 'TVAgent' } = {}) {
+  async function wbMount({ label = 'AI', title = 'TVAgent' } = {}) {
     if (wb.el && document.contains(wb.el)) return { ok: true, pageId: PAGE_ID };
     // Clear whatever a previous mount left behind before creating anything.
     teardown();
+
+    await waitForWidgetBar();
 
     const L = layout();
     // Pre-flight only: createPage() appends to the layout's own container,
