@@ -156,9 +156,10 @@
     if (!trimmed || !agent || busy) return;
     inputEl.value = '';
     inputEl.style.height = 'auto';
-    setEmpty(false);
-    showScreen('chat');
+    // showScreen derives the empty state from the list, so the message has to
+    // land first.
     chat.user(trimmed);
+    showScreen('chat');
     startRun();
     agent.send(trimmed);
   }
