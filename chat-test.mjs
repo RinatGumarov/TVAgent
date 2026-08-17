@@ -56,12 +56,39 @@ const src = fs.readFileSync(
 );
 
 let failed = 0;
+
+/**
+ * JSON.stringify не годится напрямую: `got` из проверок на опасный тег —
+ * это либо undefined (нашли, кого искали, — то есть ничего), либо живой
+ * узел поддельного DOM с обратной ссылкой .parent на предка, а тот — вперёд
+ * на детей, то есть настоящий цикл. На зелёном пути got === undefined, цикл
+ * не задет, но именно в тот момент, когда проверка ловит баг (got — живой
+ * узел с найденным <img>), JSON.stringify бросает "Converting circular
+ * structure to JSON" и валит весь прогон стектрейсом вместо FAIL — то есть
+ * не ложный зелёный, а потеря диагностики ровно там, где она нужнее всего.
+ */
+function safeStringify(v) {
+  const seen = new WeakSet();
+  try {
+    return JSON.stringify(v, (key, value) => {
+      if (typeof value === 'object' && value !== null) {
+        if (seen.has(value)) return '[Circular]';
+        seen.add(value);
+      }
+      return value;
+    });
+  } catch (e) {
+    return `[unserializable: ${e.message}]`;
+  }
+}
+
 function check(name, got, want) {
-  const ok = JSON.stringify(got) === JSON.stringify(want);
+  const gotStr = safeStringify(got);
+  const wantStr = safeStringify(want);
+  const ok = gotStr === wantStr;
   if (!ok) failed++;
   console.log(
-    `${ok ? ' ok  ' : ' FAIL'} ${name}` +
-      (ok ? '' : `\n        получили ${JSON.stringify(got)}\n        ждали    ${JSON.stringify(want)}`)
+    `${ok ? ' ok  ' : ' FAIL'} ${name}` + (ok ? '' : `\n        получили ${gotStr}\n        ждали    ${wantStr}`)
   );
 }
 
@@ -449,6 +476,32 @@ console.log('\n— onToolResult —');
   check('исходный вызов остался нетронут (всё ещё pending)', listEl.querySelector('.tva-call-status').textContent, 'running…');
 }
 
+{
+  // result приходит от модели точно так же, как имя и вход инструмента —
+  // и вставляется через .textContent += (panel-chat.js:140), а не innerHTML.
+  // Это единственное место, где такая правка выглядела бы безобидной
+  // "унификацией с остальными точками вставки" и была бы живым XSS: наш
+  // textContent-сеттер в подделке специально трактует строку буквально,
+  // без разбора тегов, — а innerHTML-сеттер честно парсит их в живые узлы,
+  // так что подмена одного на другое здесь ловится.
+  const doc = makeDocument();
+  const Chat = load({}, doc);
+  const listEl = doc.createElement('div');
+  const chat = Chat.create(listEl);
+
+  chat.startRun();
+  chat.onToolStart({ id: 'r', name: 'get_chart', input: {} });
+  const evilResult = '<img src=x onerror=alert(1)>';
+  chat.onToolResult({ id: 'r', ok: true, result: evilResult });
+
+  check('результат инструмента с разметкой не породил <img>-узел', findDangerousTag(listEl), undefined);
+  check(
+    'тело вызова содержит результат буквальным текстом',
+    listEl.querySelector('.tva-call-body').textContent.includes(evilResult),
+    true
+  );
+}
+
 // ----------------------------------------------------------------- lifecycle
 
 console.log('\n— жизненный цикл: startRun / endRun / clear —');
@@ -475,12 +528,33 @@ console.log('\n— жизненный цикл: startRun / endRun / clear —');
 }
 
 {
+  // Самый частый ран из всех — обычный текстовый ответ без единого tool
+  // call. runEl тогда никогда не создаётся (run() зовут только onThinking
+  // и onToolStart), и endRun() обязан пережить это без обращения к null.
   const doc = makeDocument();
   const Chat = load({}, doc);
   const listEl = doc.createElement('div');
   const chat = Chat.create(listEl);
 
-  // Деliberately no endRun() here: clear() has to reset runEl itself, not
+  chat.startRun();
+  chat.onText('hi');
+  let threw = false;
+  try {
+    chat.endRun();
+  } catch (e) {
+    threw = true;
+  }
+  check('endRun() на ране без единого tool call не бросает', threw, false);
+  check('и не создаёт пустую .tva-run строку', listEl.querySelectorAll('.tva-run').length, 0);
+}
+
+{
+  const doc = makeDocument();
+  const Chat = load({}, doc);
+  const listEl = doc.createElement('div');
+  const chat = Chat.create(listEl);
+
+  // Deliberately no endRun() here: clear() has to reset runEl itself, not
   // rely on endRun having already done it. This is the scenario that
   // matters — "Clear conversation" clicked while the agent is mid-run.
   chat.startRun();
