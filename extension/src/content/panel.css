@@ -14,7 +14,7 @@
   z-index: 2147483000;
   display: flex;
   flex-direction: column;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: -apple-system, "system-ui", "Trebuchet MS", Roboto, Ubuntu, sans-serif;
   font-size: 13px;
   line-height: 1.55;
   color: var(--tva-fg);
@@ -22,25 +22,19 @@
   border-left: 1px solid var(--tva-border);
   box-shadow: -8px 0 24px rgba(0, 0, 0, 0.28);
 
-  --tva-bg: #16181d;
-  --tva-bg-soft: #1e2128;
-  --tva-fg: #e4e6eb;
-  --tva-fg-dim: #9aa1ad;
-  --tva-border: #2b2f38;
-  --tva-accent: #2962ff;
-  --tva-ok: #26a69a;
-  --tva-err: #ef5350;
-  --tva-warn: #f5a623;
-}
-
-@media (prefers-color-scheme: light) {
-  #tva-root {
-    --tva-bg: #ffffff;
-    --tva-bg-soft: #f4f6f8;
-    --tva-fg: #1b1f27;
-    --tva-fg-dim: #6b7280;
-    --tva-border: #dfe3e9;
-  }
+  /* Bound to TradingView's tokens, which `all: initial` does not reset. The
+     fallbacks are TradingView's dark-theme values.
+  */
+  --tva-bg: var(--color-background-primary, #16181d);
+  --tva-bg-soft: var(--color-background-secondary, #1e2128);
+  --tva-fg: var(--color-text-primary, #e4e6eb);
+  --tva-fg-dim: var(--color-text-secondary, #9aa1ad);
+  --tva-border: var(--color-divider, #2b2f38);
+  --tva-accent: var(--color-tv-blue-500, #2962ff);
+  --tva-accent-tint: var(--color-background-special-secondary, #1c2a4d);
+  --tva-ok: var(--color-static-success, #089981);
+  --tva-err: var(--color-static-danger, #f23645);
+  --tva-warn: var(--color-static-warning, #ff9800);
 }
 
 #tva-root.tva-hidden { display: none; }
