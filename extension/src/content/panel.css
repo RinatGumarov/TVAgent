@@ -23,16 +23,17 @@
 
   /* Bound to TradingView's own tokens, which live on <html data-theme>. `all:
      initial` does not reset custom properties, so these still resolve here and
-     re-resolve on their own when the user switches theme. Fallbacks are the
-     panel's previous hardcoded palette, for when the panel runs as an overlay
-     outside a chart page. */
+     re-resolve on their own when the user switches theme. Fallbacks are
+     TradingView's own dark-theme values, since that's what the panel should
+     look like when it runs with no tokens to read (e.g. as an overlay outside
+     a chart page). */
   --tva-bg: var(--color-background-primary, #16181d);
   --tva-bg-soft: var(--color-background-secondary, #1e2128);
   --tva-fg: var(--color-text-primary, #e4e6eb);
   --tva-fg-dim: var(--color-text-secondary, #9aa1ad);
   --tva-border: var(--color-divider, #2b2f38);
   --tva-accent: var(--color-tv-blue-500, #2962ff);
-  --tva-accent-tint: var(--color-background-special-secondary, #1c2a4d);
+  --tva-accent-tint: var(--color-background-special-secondary, #132042);
   --tva-ok: var(--color-static-success, #089981);
   --tva-err: var(--color-static-danger, #f23645);
   --tva-warn: var(--color-static-warning, #ff9800);
