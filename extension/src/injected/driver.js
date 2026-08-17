@@ -490,7 +490,16 @@
         report.studies = typeof c.createStudy === 'function' && typeof c.getAllStudies === 'function';
         report.drawings = typeof c.createShape === 'function';
         report.strategy = typeof c.getStudyById === 'function';
-        try { report.series = !bars().isEmpty(); } catch (_) { report.series = false; }
+        let loadedBars = null;
+        try {
+          loadedBars = bars();
+          report.series = !loadedBars.isEmpty();
+        } catch (_) { report.series = false; }
+        // The last close, for the context row; absent rather than null until
+        // the bars have loaded.
+        if (report.series) {
+          try { report.price = loadedBars.last().value[4]; } catch (_) { /* leave price absent */ }
+        }
       } catch (e) {
         report.warnings.push('Chart not ready: ' + e.message);
       }

@@ -140,13 +140,32 @@
     statusEl.querySelector('span').textContent = text;
   }
 
+  /**
+   * Locale-aware grouping; two decimals, widening to six under $1 so a low
+   * price does not round to 0.00.
+   */
+  function formatPrice(price) {
+    if (price == null || !isFinite(price)) return '';
+    return new Intl.NumberFormat(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: Math.abs(price) < 1 ? 6 : 2,
+    }).format(price);
+  }
+
   function setContext() {
     const caps = capabilities || {};
     const where = caps.symbol
-      ? [caps.symbol, caps.resolution].filter(Boolean).join(' · ')
+      ? [caps.symbol, caps.resolution, formatPrice(caps.price)].filter(Boolean).join(' · ')
       : 'no chart';
     contextEl.textContent = where;
     root.querySelector('#tva-in-context').textContent = caps.symbol ? `${where} in context` : '';
+  }
+
+  /** Same shape as the "no chart" branch below, reused by the boot-failure paths. */
+  function showError(statusText, message) {
+    setStatus('err', statusText);
+    setEmpty(false);
+    chat.error(message);
   }
 
   // ---------------------------------------------------------------- chat
@@ -204,18 +223,32 @@
   // ---------------------------------------------------------------- boot
 
   async function boot() {
-    const { root: mountRoot, mode } = await window.TVAgentMount.mount();
+    let mountRoot, mode;
+    try {
+      ({ root: mountRoot, mode } = await window.TVAgentMount.mount());
+    } catch (err) {
+      // build() has not run, so there is no panel to write into: a standalone
+      // banner instead.
+      showFatalMountError(err);
+      return;
+    }
+
     build(mountRoot);
 
-    settings = window.TVAgentSettings.create(settingsEl, {
-      onChange: ({ provider, model }) => {
-        modelChipEl.textContent = provider === 'anthropic' ? label(model) : model || 'Pick a model';
-      },
-    });
+    try {
+      settings = window.TVAgentSettings.create(settingsEl, {
+        onChange: ({ provider, model }) => {
+          modelChipEl.textContent = provider === 'anthropic' ? label(model) : model || 'Pick a model';
+        },
+      });
 
-    // The panel is only useful once it has been told what to call.
-    const configured = await settings.ready;
-    if (!configured) toggleSettings(true);
+      // The panel is only useful once it has been told what to call.
+      const configured = await settings.ready;
+      if (!configured) toggleSettings(true);
+    } catch (err) {
+      showError('error', 'TVAgent failed to start: ' + (err?.message || String(err)));
+      return;
+    }
 
     if (mode === 'native') {
       window.TVAgentMount.onActive((active) => {
@@ -224,13 +257,17 @@
     }
 
     setStatus('warn', 'connecting…');
-    capabilities = await window.TVAgentBridge.probeWhenReady();
+    try {
+      capabilities = await window.TVAgentBridge.probeWhenReady();
+    } catch (err) {
+      showError('error', 'TVAgent failed to start: ' + (err?.message || String(err)));
+      return;
+    }
     setContext();
 
     if (!capabilities.tradingViewApi || !capabilities.chart) {
-      setStatus('err', 'no chart');
-      setEmpty(false);
-      chat.error(
+      showError(
+        'no chart',
         'Could not reach the TradingView API on this page. Open a chart at ' +
           'tradingview.com/chart/ and reload.'
       );
@@ -246,6 +283,18 @@
     agent = new window.TVAgentRuntime.Agent({ capabilities, handlers: handlers() });
   }
 
+  /** Shown when mount() itself fails and there is no #tva-root to write into. */
+  function showFatalMountError(err) {
+    const el = document.createElement('div');
+    el.id = 'tva-boot-error';
+    el.textContent = 'TVAgent failed to start: ' + (err?.message || String(err));
+    el.style.cssText =
+      'position:fixed;bottom:16px;right:16px;max-width:320px;padding:10px 14px;' +
+      'background:#20242b;color:#ff6b6b;border:1px solid #ff6b6b;border-radius:8px;' +
+      'font:12px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;z-index:2147483647;';
+    document.documentElement.appendChild(el);
+  }
+
   const label = (model) =>
     ({
       'claude-opus-5': 'Claude Opus',
@@ -257,5 +306,10 @@
     if (msg?.type === 'toggle-panel') window.TVAgentMount.toggle();
   });
 
-  boot();
+  // Anything the catches above missed still gets a visible error.
+  boot().catch((err) => {
+    console.error('[TVAgent] boot failed:', err);
+    if (chat) showError('error', 'TVAgent failed to start: ' + (err?.message || String(err)));
+    else showFatalMountError(err);
+  });
 })();
