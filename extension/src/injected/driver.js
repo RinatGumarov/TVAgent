@@ -126,8 +126,8 @@
   }
 
   const wb = {
-    page: null,
-    el: null,
+    page: null, // set by widgetbar_mount
+    el: null, // set by widgetbar_mount
     button: null,
     prevPage: null,
     prevMinimized: false,
@@ -180,6 +180,60 @@
     L.activePageIndex.subscribe(syncActive);
     L.isMinimized.subscribe(syncActive);
     wb.watching = true;
+  }
+
+  /**
+   * TradingView's buttons carry per-build hashed classes, so ours is cloned
+   * from a live one. `aria-pressed="false"` picks a tab button that is not
+   * the active one: the close button has no aria-pressed, and the active
+   * tab's hash would leave ours lit.
+   */
+  function injectButton(label, title) {
+    const toolbar = document.querySelector('[data-name="right-toolbar"]');
+    if (!toolbar) throw new Error('Right toolbar not found.');
+
+    const model = toolbar.querySelector('button[data-name]');
+    if (!model) throw new Error('No widget bar button to clone.');
+
+    const btn = model.cloneNode(false);
+    btn.setAttribute('data-name', 'tva-agent');
+    btn.setAttribute('aria-label', title);
+    btn.setAttribute('data-tooltip', title);
+    btn.setAttribute('aria-pressed', 'false');
+    // TradingView's toolbar drives roving focus over buttons it knows about, and
+    // it does not know about this one — so give it its own tab stop.
+    btn.setAttribute('tabindex', '0');
+    btn.classList.add('tva-tab');
+
+    const badge = document.createElement('span');
+    badge.className = 'tva-tab-badge';
+    badge.textContent = label;
+    btn.appendChild(badge);
+
+    btn.addEventListener('click', () => {
+      if (isActive()) HANDLERS.widgetbar_deactivate();
+      else HANDLERS.widgetbar_activate();
+    });
+
+    placeButton(toolbar, btn);
+    wb.button = btn;
+    return { toolbar, btn };
+  }
+
+  /** The top group ends at the first child that is not a button (the filler). */
+  function placeButton(toolbar, btn) {
+    const anchor = Array.prototype.find.call(toolbar.children, (c) => c.tagName !== 'BUTTON');
+    toolbar.insertBefore(btn, anchor || null);
+  }
+
+  function watchToolbar(toolbar, btn) {
+    // A splice below our page changes what our index means without notifying
+    // anyone, so re-sync here as well as re-placing the button.
+    const observer = new MutationObserver(() => {
+      if (!toolbar.contains(btn)) placeButton(toolbar, btn);
+      syncActive();
+    });
+    observer.observe(toolbar, { childList: true });
   }
 
   // ---------------------------------------------------------------- handlers
@@ -245,6 +299,39 @@
     },
 
     // ---- widgetbar ----------------------------------------------------------
+
+    /**
+     * Creates the widget bar page. A mount already in flight is shared
+     * rather than repeated.
+     */
+    widgetbar_mount({ label = 'AI', title = 'TVAgent' } = {}) {
+      if (wb.el && document.contains(wb.el)) return { ok: true, pageId: PAGE_ID };
+
+      const L = layout();
+      const content = document.querySelector('.widgetbar-pagescontent');
+      if (!content) throw new Error('Widget bar page container not found.');
+
+      const before = new Set(Array.prototype.slice.call(content.children));
+      const page = L.createPage();
+      const el = Array.prototype.find.call(content.children, (c) => !before.has(c));
+      if (!el) throw new Error('createPage() added no page element.');
+
+      try {
+        page.name = 'tva_agent';
+      } catch (e) {
+        log('page name is read-only in this build');
+      }
+
+      el.id = PAGE_ID;
+      wb.page = page;
+      wb.el = el;
+
+      const { toolbar, btn } = injectButton(label, title);
+      watchToolbar(toolbar, btn);
+      watchActive();
+
+      return { ok: true, pageId: PAGE_ID };
+    },
 
     /**
      * Activation goes through switchPage, never onTabClick — the latter calls
@@ -539,6 +626,19 @@
       };
     },
   };
+
+  // A page left active at unload would be saved into the account's widget bar
+  // layout and come back as a tab with nothing behind it.
+  window.addEventListener('beforeunload', () => {
+    if (!wb.page) return;
+    try {
+      const L = layout();
+      if (isActive()) HANDLERS.widgetbar_deactivate();
+      L.removePage(wb.page);
+    } catch (e) {
+      /* the page is going away anyway */
+    }
+  });
 
   // ---------------------------------------------------------------- bridge
 
