@@ -32,6 +32,7 @@
         "src/content/agent.js",
         "src/content/panel-mount.js",
         "src/content/panel-chat.js",
+        "src/content/panel-settings.js",
         "src/content/panel.js"
       ],
       "css": ["src/content/panel.css"],
