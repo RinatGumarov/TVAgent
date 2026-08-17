@@ -119,9 +119,14 @@
     return out;
   }
 
-  // ---------------------------------------------------------------- widgetbar
+  // ---------------------------------------------------------------- widget bar
+  //
+  // Every line that reaches into TradingView's widget bar lives in this one
+  // block. `wb` owns all of the state a mount creates and teardown() is the
+  // single place that hands every piece of it back.
 
   const PAGE_ID = 'tva-widgetbar-page';
+  const PAGE_NAME = 'tva_agent';
 
   /** Unsolicited push to the content script. Requests still use RES. */
   function emit(type, payload) {
@@ -129,12 +134,16 @@
   }
 
   const wb = {
-    page: null, // set by widgetbar_mount
-    el: null, // set by widgetbar_mount
-    button: null,
-    prevPage: null,
+    page: null, // WidgetBarPage handed out by layout.createPage()
+    el: null, // page.element()
+    button: null, // our cloned tab button
+    observer: null, // MutationObserver over the right toolbar
+    prevPage: null, // the user's tab, to put back on deactivate
     prevMinimized: false,
-    watching: false,
+    // The layout we are subscribed to, not a flag: refreshFromTVSettings()
+    // swaps the whole layout object (widget-bar.ts:379-407).
+    watching: null,
+    unloadArmed: false,
     // Must start undefined, not false — the first sync may legitimately be false.
     lastActive: undefined,
   };
@@ -182,24 +191,144 @@
     }
   }
 
+  /**
+   * Subscriptions follow the layout, because the layout is replaceable:
+   * onLoginStateChange -> refreshFromTVSettings() destroys it and installs a
+   * fresh WidgetBarLayout (widget-bar.ts:362-407). That fires when the user
+   * logs in without reloading — the ordinary way to get a widget bar at all,
+   * since an anonymous chart has none. Latching on a boolean would leave
+   * syncActive bound to the dead layout's watched values for good: the button
+   * would stop tracking and the panel would stop hearing widgetbar-active,
+   * silently. Everything else recovers on its own, because layout() re-reads
+   * the global and destroy() detaches wb.el, which fails the mount fast path.
+   */
   function watchActive() {
-    if (wb.watching) return;
     const L = layout();
+    if (wb.watching === L) return;
+    if (wb.watching) {
+      // WatchedValue.unsubscribe(cb) drops every matching listener
+      // (packages/common/src/watched-value.ts).
+      wb.watching.activePageIndex.unsubscribe(syncActive);
+      wb.watching.isMinimized.unsubscribe(syncActive);
+    }
     L.activePageIndex.subscribe(syncActive);
     L.isMinimized.subscribe(syncActive);
-    wb.watching = true;
+    wb.watching = L;
+  }
+
+  /**
+   * The members of TradingView's WatchedValue that their tab button components
+   * actually use (packages/common/src/watched-value.ts): value, setValue,
+   * subscribe(cb, options), unsubscribe(cb).
+   */
+  function watchedValue(initial) {
+    let current = initial;
+    const subs = [];
+    return {
+      value: () => current,
+      setValue(next) {
+        if (next === current) return;
+        current = next;
+        subs.slice().forEach((fn) => {
+          try { fn(current); } catch (e) { log('watched value listener failed', e); }
+        });
+      },
+      subscribe(fn, options) {
+        subs.push(fn);
+        if (options && options.callWithLast) fn(current);
+      },
+      unsubscribe(fn) {
+        if (!fn) { subs.length = 0; return; }
+        const i = subs.indexOf(fn);
+        if (i !== -1) subs.splice(i, 1);
+      },
+    };
+  }
+
+  /**
+   * `layout.createPage()` leaves `page.tab` undefined — only demarshal() ever
+   * builds one, through createTabButtonViewModel (page.ts:477-491, called from
+   * page.ts:519). The host does not treat the field as optional:
+   * page.onActiveStateChange does `ensure(this.tab)` (page.ts:93), so a page
+   * without one throws the moment it is switched *to* or *away from* — and a
+   * switch away happens on the user's next native tab click, which would leave
+   * their whole widget bar wedged until reload. RightToolbar's constructor also
+   * reads `tab.TabButtonComponent` for every page (right-toolbar.tsx:102-103),
+   * so a remount would fail to construct at all.
+   *
+   * We build the view model ourselves rather than calling the host's
+   * createTabButtonViewModel(): that one's onClick closes over
+   * layout.onTabClick(this), which saves to the account's settings.
+   *
+   * `visible` is false on purpose. Once the page has a tab, RightToolbar
+   * registers it in `_pages` and _renderPages() would draw a second button next
+   * to the one we inject (right-toolbar.tsx:250-267) — and dropping `page.name`
+   * does not help, because `undefined in obj` stringifies the key and finds the
+   * entry the constructor stored under "undefined". bindTabButton's provider
+   * returns null for a model that is not visible (bind-tab-button.tsx:53-57),
+   * which suppresses the button at the only place that can. `onClick` holds
+   * undefined and `isDisabled` true for the same reason a belt gets braces:
+   * even if one were rendered it would come out inert and disabled
+   * (tab-button.tsx:45-49) and could not reach onTabClick.
+   */
+  function inertTab(hint) {
+    const active = watchedValue(false);
+    const count = watchedValue(0);
+    const ariaLabel = watchedValue('');
+    return {
+      name: PAGE_NAME,
+      product: null,
+      area: null,
+      isNew: false,
+      TabButtonComponent: undefined,
+      isActive: active,
+      isDisabled: watchedValue(true),
+      notificationsCount: count,
+      notificationCounterAriaLabel: ariaLabel,
+      icon: watchedValue(''),
+      hint: watchedValue(hint || 'TVAgent'),
+      onClick: watchedValue(undefined),
+      visible: watchedValue(false),
+      // The three methods page.ts calls on `tab` (page.ts:93, 432, 438, 593, 599).
+      onActiveStateChange: (state) => active.setValue(!!state),
+      updateNotifications: (value) => count.setValue(Number(value) || 0),
+      updateNotificationCounterAriaLabel: (value) => ariaLabel.setValue(String(value || '')),
+    };
+  }
+
+  /** Everything the host needs true of our page before it joins the rotation. */
+  function preparePage(page, title) {
+    page.tab = inertTab(title);
+    // `name` is a plain mutable field (page.ts:41) — nothing refuses the write.
+    // It keeps RightToolbar from logging "Page does not provide required field
+    // name" on every construction (right-toolbar.tsx:96-100) and gives React a
+    // stable key. It costs a wrong layout.activeName, which widgetbar_activate
+    // puts back.
+    page.name = PAGE_NAME;
+    return page;
   }
 
   /**
    * TradingView's own buttons carry per-build hashed classes, so the button is
    * cloned from a live one rather than described in CSS. Only the badge inside
    * is ours, which is also why no hash has to be derived for the active state.
+   *
+   * Which button gets cloned matters, and one selector settles both traps.
+   * `aria-pressed` is written only by TabButton (tab-button.tsx:54), so asking
+   * for it skips the CloseButton that takes first place in DOM order when
+   * `widgetBar.adaptive && isFullscreen` (right-toolbar.tsx:179-181). Asking
+   * for "false" skips a tab that is currently active: ToolWidgetButton puts the
+   * active hash on the <button> itself (tool-widget-button.tsx:74-96), and on a
+   * default chart the first tab in DOM order is the watchlist, which is
+   * activeIndex 0 — cloning it would render our tab permanently on.
    */
   function injectButton(label, title) {
     const toolbar = document.querySelector('[data-name="right-toolbar"]');
     if (!toolbar) throw new Error('Right toolbar not found.');
 
-    const model = toolbar.querySelector('button[data-name]');
+    const model =
+      toolbar.querySelector('button[data-name][aria-pressed="false"]:not(:disabled)') ||
+      toolbar.querySelector('button[data-name]:not(:disabled)');
     if (!model) throw new Error('No widget bar button to clone.');
 
     const btn = model.cloneNode(false);
@@ -207,9 +336,16 @@
     btn.setAttribute('aria-label', title);
     btn.setAttribute('data-tooltip', title);
     btn.setAttribute('aria-pressed', 'false');
-    // TradingView's toolbar drives roving focus over buttons it knows about, and
-    // it does not know about this one — so give it its own tab stop.
-    btn.setAttribute('tabindex', '0');
+    // The toolbar keeps exactly one tab stop. Every TabButton renders with
+    // tabIndex -1 until roving focus promotes it (use-roving-tabindex-element.ts),
+    // and that promotion is a CustomEvent only that hook listens for
+    // (roving-tabindex.ts), so nothing can ever demote a foreign button. A
+    // tabindex of 0 here would not merely add a second stop: our button would
+    // be the only hit in queryTabbableElements, and the toolbar's initialiser
+    // only promotes one of its own when that list is empty (toolbar.tsx:33-41),
+    // so the host's buttons would stay unreachable by Tab. Arrow keys still
+    // reach us — queryFocusableElements matches a plain button.
+    btn.setAttribute('tabindex', '-1');
     btn.classList.add('tva-tab');
 
     const badge = document.createElement('span');
@@ -218,8 +354,8 @@
     btn.appendChild(badge);
 
     btn.addEventListener('click', () => {
-      if (isActive()) HANDLERS.widgetbar_deactivate();
-      else HANDLERS.widgetbar_activate();
+      if (isActive()) wbDeactivate();
+      else wbActivate();
     });
 
     placeButton(toolbar, btn);
@@ -233,14 +369,175 @@
     toolbar.insertBefore(btn, anchor || null);
   }
 
+  /**
+   * React owns this subtree and we are a foreign child inside it, so any
+   * re-render of the tab list can drop us. RightToolbar force-updates when a
+   * tab's visibility, disabled or active state changes
+   * (right-toolbar.tsx:226-239), and re-renders on fullscreen transitions,
+   * which add and remove the CloseButton (right-toolbar.tsx:179-181).
+   * syncActive() rides along because a re-render is a cheap hint that the bar's
+   * state may have moved; it de-dupes itself.
+   */
   function watchToolbar(toolbar, btn) {
-    // A splice below our page changes what our index means without notifying
-    // anyone, so re-sync here as well as re-placing the button.
-    const observer = new MutationObserver(() => {
+    wb.observer = new window.MutationObserver(() => {
       if (!toolbar.contains(btn)) placeButton(toolbar, btn);
       syncActive();
     });
-    observer.observe(toolbar, { childList: true });
+    wb.observer.observe(toolbar, { childList: true });
+  }
+
+  /**
+   * The one way out. Everything mount created is undone in the reverse order it
+   * was made: the observer first, so it cannot put the button back; then the
+   * button; then the page, after handing the user their own tab.
+   */
+  function teardown() {
+    if (!wb.page && !wb.el && !wb.button && !wb.observer) return;
+
+    if (wb.observer) {
+      wb.observer.disconnect();
+      wb.observer = null;
+    }
+    if (wb.button) {
+      if (wb.button.remove) wb.button.remove();
+      wb.button = null;
+    }
+    if (wb.page) {
+      const page = wb.page;
+      try {
+        if (isActive()) wbDeactivate();
+        layout().removePage(page);
+      } catch (e) {
+        log('teardown could not remove the page', e);
+      }
+      wb.page = null;
+    }
+    wb.el = null;
+    wb.prevPage = null;
+    wb.prevMinimized = false;
+    // wb.watching is left alone: both subscriptions read wb.page on every call,
+    // so they are correct with no page, and they are keyed to the layout rather
+    // than to a mount — watchActive() re-points them if it is ever swapped.
+    wb.lastActive = undefined;
+    syncActive();
+  }
+
+  /**
+   * Our page has to leave layout.pages before the document does, so that
+   * nothing — a RightToolbar remount above all — meets it, and the user is left
+   * on their own tab rather than behind ours.
+   *
+   * `pagehide` rather than `beforeunload`: a beforeunload listener disqualifies
+   * the page from the back/forward cache in Firefox, and it does not fire on a
+   * bfcache navigation or a tab discard anywhere. It is armed from mount rather
+   * than at driver load, so chart pages that never open the panel pay nothing.
+   *
+   * What this cannot do is undo a settings write. Nothing calls
+   * saveToTVSettings() at unload; if the widget bar was written during the
+   * session it was written then — see widgetbar_activate for the field that
+   * actually takes the damage and what is done about it.
+   */
+  function armUnloadTeardown() {
+    if (wb.unloadArmed) return;
+    wb.unloadArmed = true;
+    window.addEventListener('pagehide', () => {
+      try {
+        teardown();
+      } catch (e) {
+        /* the document is going away anyway */
+      }
+    });
+  }
+
+  /** Creates a real widget bar page and returns the id of its element. */
+  function wbMount({ label = 'AI', title = 'TVAgent' } = {}) {
+    if (wb.el && document.contains(wb.el)) return { ok: true, pageId: PAGE_ID };
+    // A mount whose element is gone still owns a page in layout.pages, a button
+    // in the toolbar and a live observer that would put that button back —
+    // running the body again would leave the user with two identical tabs.
+    teardown();
+
+    const L = layout();
+    // Pre-flight only: createPage() appends to the layout's own container
+    // (layout.ts:391), not to whatever this query happens to find.
+    if (!document.querySelector('.widgetbar-pagescontent')) {
+      throw new Error('Widget bar page container not found.');
+    }
+
+    const page = L.createPage();
+    wb.page = page;
+    try {
+      // First, before anything below can throw: a rollback runs removePage,
+      // which switches pages when ours is the active one, and that would call
+      // onActiveStateChange on a page with no tab.
+      preparePage(page, title);
+
+      const el = page.element();
+      if (!el) throw new Error('createPage() produced no page element.');
+      wb.el = el;
+      el.id = PAGE_ID;
+
+      const { toolbar, btn } = injectButton(label, title);
+      watchToolbar(toolbar, btn);
+      watchActive();
+      armUnloadTeardown();
+    } catch (e) {
+      // createPage() has already mutated layout.pages and the DOM, and
+      // injectButton fails on real conditions — the hide_right_toolbar_tabs
+      // featureset renders no toolbar at all (right-toolbar-renderer.ts:11-24).
+      // The caller falls back to its own overlay, so leave nothing behind.
+      teardown();
+      throw e;
+    }
+
+    return { ok: true, pageId: PAGE_ID };
+  }
+
+  /**
+   * Activation goes through switchPage, never onTabClick — the latter calls
+   * saveToTVSettings() and would write our page into the account's saved
+   * widget bar layout.
+   */
+  function wbActivate() {
+    const L = layout();
+    const index = ourIndex();
+    if (index === -1) throw new Error('Widget bar page is not mounted.');
+    // Capture on page identity, not visibility: our page can be the active
+    // one while the bar is minimized, and remembering ourselves as the
+    // previous tab would lose the user's real one for good.
+    if (index !== L.activeIndex) {
+      wb.prevPage = L.pages[L.activeIndex] || null;
+      wb.prevMinimized = !!L.isMinimized.value();
+    }
+    L.switchPage(index);
+    // switchPage has just set layout.activeName to ours (layout.ts:301), and
+    // that string is persisted by the next saveToTVSettings() — a native tab
+    // click (layout.ts:364-366), a widget divider drag (page.ts:297-299) or a
+    // drag of the bar's own edge (layout.ts:703-707), which is exactly what a
+    // user does to resize our panel. On the next load demarshal finds no page
+    // by that name and resets to index 0 (layout.ts:598-600), silently losing
+    // the tab the user had open. Point it back at theirs: activeName is read
+    // only by demarshal and marshal, never at runtime.
+    L.activeName = (wb.prevPage && wb.prevPage.name) || '';
+    L.setMinimizedState(false);
+    return { ok: true };
+  }
+
+  function wbDeactivate() {
+    const L = layout();
+    // Only put things back if we are the one showing — the user may have
+    // opened a native tab since, and restoring then would move them. The
+    // index check alone is fooled when we are detached and nothing is
+    // active (both -1), so detachment is excluded explicitly.
+    const index = ourIndex();
+    if (index === -1 || index !== L.activeIndex) return { ok: true };
+    if (wb.prevPage) L.switchPage(wb.prevPage);
+    if (wb.prevMinimized) L.setMinimizedState(true);
+    return { ok: true };
+  }
+
+  function wbState() {
+    return { active: isActive(), minimized: !!layout().isMinimized.value() };
   }
 
   // ---------------------------------------------------------------- handlers
@@ -306,78 +603,14 @@
       return report;
     },
 
-    // ---- widgetbar ----------------------------------------------------------
+    // ---- widgetbar --------------------------------------------------------
+    // Bodies live in the widget bar block above, so that all of it — including
+    // the teardown they share — reads as one unit.
 
-    /** Creates a real widget bar page and returns the id of its element. */
-    widgetbar_mount({ label = 'AI', title = 'TVAgent' } = {}) {
-      if (wb.el && document.contains(wb.el)) return { ok: true, pageId: PAGE_ID };
-
-      const L = layout();
-      const content = document.querySelector('.widgetbar-pagescontent');
-      if (!content) throw new Error('Widget bar page container not found.');
-
-      const before = new Set(Array.prototype.slice.call(content.children));
-      const page = L.createPage();
-      const el = Array.prototype.find.call(content.children, (c) => !before.has(c));
-      if (!el) throw new Error('createPage() added no page element.');
-
-      // A page whose name is not in RightToolbar's internal map renders no
-      // button of its own, which is what we want. The property is declared
-      // readonly, so some builds refuse the write — the name is a nicety.
-      try {
-        page.name = 'tva_agent';
-      } catch (e) {
-        log('page name is read-only in this build');
-      }
-
-      el.id = PAGE_ID;
-      wb.page = page;
-      wb.el = el;
-
-      const { toolbar, btn } = injectButton(label, title);
-      watchToolbar(toolbar, btn);
-      watchActive();
-
-      return { ok: true, pageId: PAGE_ID };
-    },
-
-    /**
-     * Activation goes through switchPage, never onTabClick — the latter calls
-     * saveToTVSettings() and would write our page into the account's saved
-     * widget bar layout.
-     */
-    widgetbar_activate() {
-      const L = layout();
-      const index = ourIndex();
-      if (index === -1) throw new Error('Widget bar page is not mounted.');
-      // Capture on page identity, not visibility: our page can be the active
-      // one while the bar is minimized, and remembering ourselves as the
-      // previous tab would lose the user's real one for good.
-      if (index !== L.activeIndex) {
-        wb.prevPage = L.pages[L.activeIndex] || null;
-        wb.prevMinimized = !!L.isMinimized.value();
-      }
-      L.switchPage(index);
-      L.setMinimizedState(false);
-      return { ok: true };
-    },
-
-    widgetbar_deactivate() {
-      const L = layout();
-      // Only put things back if we are the one showing — the user may have
-      // opened a native tab since, and restoring then would move them. The
-      // index check alone is fooled when we are detached and nothing is
-      // active (both -1), so detachment is excluded explicitly.
-      const index = ourIndex();
-      if (index === -1 || index !== L.activeIndex) return { ok: true };
-      if (wb.prevPage) L.switchPage(wb.prevPage);
-      if (wb.prevMinimized) L.setMinimizedState(true);
-      return { ok: true };
-    },
-
-    widgetbar_state() {
-      return { active: isActive(), minimized: !!layout().isMinimized.value() };
-    },
+    widgetbar_mount: wbMount,
+    widgetbar_activate: wbActivate,
+    widgetbar_deactivate: wbDeactivate,
+    widgetbar_state: wbState,
 
     // ---- context ----------------------------------------------------------
 
@@ -640,19 +873,6 @@
     },
   };
 
-  // A page left active at unload would be saved into the account's widget bar
-  // layout and come back as a tab with nothing behind it.
-  window.addEventListener('beforeunload', () => {
-    if (!wb.page) return;
-    try {
-      const L = layout();
-      if (isActive()) HANDLERS.widgetbar_deactivate();
-      L.removePage(wb.page);
-    } catch (e) {
-      /* the page is going away anyway */
-    }
-  });
-
   // ---------------------------------------------------------------- bridge
 
   window.addEventListener('message', async (event) => {
@@ -686,13 +906,13 @@
   window.__tvAgent = {
     call: (m, p) => HANDLERS[m](p || {}),
     methods: Object.keys(HANDLERS),
-    // Test-only seam, kept past task 3: widgetbar_mount's success path needs a
-    // right-toolbar button to clone and a .widgetbar-pagescontent to append
-    // into, and building that fake DOM buys nothing the failure-path tests
-    // above don't already cover. Everything past "the page got created" —
-    // activate/deactivate/state/transitions — only needs a page object, which
-    // is exactly what this hands the test.
-    __adopt: (page) => {
+    // Test-only seam, kept past task 3: it does to a page exactly what mount
+    // does — preparePage, then adopt — minus the DOM, so the state machine can
+    // be driven without a toolbar to clone from. Anything that mount does to
+    // the page itself has to happen here too, or the tests go green over a page
+    // the host cannot activate.
+    __adopt: (page, title) => {
+      preparePage(page, title || 'TVAgent');
       wb.page = page;
       watchActive();
     },
