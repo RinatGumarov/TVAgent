@@ -4,14 +4,6 @@
 
 #tva-root {
   all: initial;
-  position: fixed;
-  top: 0;
-  right: 0;
-  height: 100vh;
-  width: 400px;
-  min-width: 300px;
-  max-width: 70vw;
-  z-index: 2147483000;
   display: flex;
   flex-direction: column;
   font-family: -apple-system, "system-ui", "Trebuchet MS", Roboto, Ubuntu, sans-serif;
@@ -19,8 +11,6 @@
   line-height: 1.55;
   color: var(--tva-fg);
   background: var(--tva-bg);
-  border-left: 1px solid var(--tva-border);
-  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.28);
 
   /* Bound to TradingView's tokens, which `all: initial` does not reset. The
      fallbacks are TradingView's dark-theme values.
