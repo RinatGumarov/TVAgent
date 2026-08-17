@@ -149,10 +149,20 @@ function matchCompound(compound, el) {
 }
 
 const css = fs.readFileSync(`${EXT}content/panel.css`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, sel, body]) => ({
-  selectors: sel.split(',').map((s) => s.trim()).filter(Boolean),
-  display: (body.match(/display\s*:\s*([^;]+)/) || [])[1]?.trim(),
-}));
+const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].map(([, sel, body]) => {
+  const raw = (body.match(/display\s*:\s*([^;]+)/) || [])[1]?.trim();
+  return {
+    selectors: sel.split(',').map((s) => s.trim()).filter(Boolean),
+    // `!important` (used by .tva-hidden so a later same-specificity rule with
+    // its own `display` — e.g. .tva-list's `display: flex` — cannot win the
+    // cascade) has to be stripped from the value here for the string compares
+    // below, but its priority still has to be modeled separately — see
+    // displayFor, which is otherwise a plain "last matching rule wins"
+    // evaluator and would miss the exact bug this guards against.
+    display: raw?.replace(/\s*!important$/, ''),
+    important: /!important\s*$/.test(raw || ''),
+  };
+});
 
 /** Группа чужого провайдера: <div class="tva-set-group tva-hidden" data-for="anthropic"> */
 const hiddenField = [
@@ -166,17 +176,58 @@ const visibleField = [
   { tag: 'div', id: null, classes: ['tva-set-group'] },
 ];
 
+/**
+ * The four elements panel.js itself toggles .tva-hidden on (showScreen()).
+ * #tva-list is the one that actually broke: .tva-list's own `display: flex`
+ * rule, declared later in the file at equal specificity, won the cascade over
+ * .tva-hidden's `display: none` and left the message list visible behind the
+ * settings screen. The other three passed only because no later rule happens
+ * to set `display` on them — incidental, not structural — so they get the same
+ * guard here.
+ */
+const hiddenList = [
+  { tag: 'div', id: 'tva-root', classes: [] },
+  { tag: 'div', id: null, classes: ['tva-body'] },
+  { tag: 'div', id: 'tva-list', classes: ['tva-list', 'tva-hidden'] },
+];
+const hiddenEmpty = [
+  hiddenList[0],
+  hiddenList[1],
+  { tag: 'div', id: 'tva-empty', classes: ['tva-empty', 'tva-hidden'] },
+];
+const hiddenSettings = [
+  hiddenList[0],
+  hiddenList[1],
+  { tag: 'div', id: 'tva-settings', classes: ['tva-settings', 'tva-hidden'] },
+];
+const hiddenComposer = [
+  hiddenList[0],
+  { tag: 'footer', id: null, classes: ['tva-composer', 'tva-hidden'] },
+];
+
 const displayFor = (path) => {
   let value = 'block';
+  let importantWon = false;
   for (const rule of rules) {
     if (!rule.display) continue;
-    if (rule.selectors.some((s) => matches(s, path))) value = rule.display;
+    if (!rule.selectors.some((s) => matches(s, path))) continue;
+    // Once an !important declaration has matched, only a later !important
+    // declaration can still override it — same tiering the real cascade uses,
+    // and the reason .tva-hidden's `display: none !important` beats .tva-list's
+    // later, merely-equal-specificity `display: flex`.
+    if (importantWon && !rule.important) continue;
+    value = rule.display;
+    if (rule.important) importantWon = true;
   }
   return value;
 };
 
 check('поле с .tva-hidden скрыто', displayFor(hiddenField), 'none');
 check('обычное поле видно', displayFor(visibleField) !== 'none', true);
+check('скрытый список скрыт', displayFor(hiddenList), 'none');
+check('скрытый empty state скрыт', displayFor(hiddenEmpty), 'none');
+check('скрытый settings-экран скрыт', displayFor(hiddenSettings), 'none');
+check('скрытый композер скрыт', displayFor(hiddenComposer), 'none');
 
 console.log(failed ? `\n ПРОВАЛЕНО: ${failed}\n` : '\n всё зелёное\n');
 process.exit(failed ? 1 : 0);
