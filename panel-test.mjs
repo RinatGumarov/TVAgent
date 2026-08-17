@@ -394,6 +394,22 @@ function caps(overrides = {}) {
   };
 }
 
+/**
+ * Ждёт границу макрозадачи, а не фиксированное число микрозадач. Важно для
+ * boot-ordering тестов: window.TVAgentMount.mount() у panel.js — сама async
+ * функция, так что её возвращаемый промис не есть тот, что она вернула
+ * изнутри (`return mountPromise`), а СЛЕДУЕТ за ним — с лишним тиком
+ * микрозадачи сверх момента, когда mountPromise сам резолвится. await
+ * mountPromise в тесте (тот же промис, что раздали моку как результат)
+ * поэтому резолвится на тик РАНЬШЕ, чем то, что boot() реально ждёт (await
+ * window.TVAgentMount.mount()) — и проверка типа "build() уже выполнился"
+ * ловит его ещё не выполнившимся не потому, что порядок mount-перед-build
+ * нарушен, а потому что тест посмотрел слишком рано. Возведено в общий
+ * случай: у любой async-обёртки над контролируемым тестом промисом будет
+ * такой же лишний тик. flush() через setTimeout(0) пережидает их все разом,
+ * сколько бы их ни было, вместо того чтобы гадать числом await
+ * Promise.resolve().
+ */
 function flush() {
   return new Promise((r) => setTimeout(r, 0));
 }
@@ -472,15 +488,9 @@ console.log('\n— boot: mount перед build —');
   check('build() ещё не выполнился — root пуст, пока mount() не resolved', root.children.length, 0);
 
   resolveMount({ root, mode: 'overlay' });
-  // mount.mount() выше сама async, поэтому её возвращаемый промис не есть
-  // mountPromise напрямую, а следует за ним ("chains") — это лишний тик
-  // микрозадачи сверх разрешения mountPromise. await mountPromise здесь
-  // (эксперимент, оставленный закомментированным намеренно) резолвится на
-  // тик раньше, чем то, что boot() реально ждёт (await window.TVAgentMount.mount()),
-  // и тогда эта проверка ловит build() ещё не выполнившимся — не потому что
-  // порядок mount-перед-build нарушен, а потому что тест смотрит слишком
-  // рано. flush() пережидает границу макрозадачи, чего достаточно для
-  // любого числа микрозадач подряд.
+  // Не await mountPromise здесь — mount.mount() выше сама async, значит её
+  // возвращаемый промис следует за mountPromise на лишний тик микрозадачи
+  // (см. комментарий у flush()). flush() пережидает его надёжно.
   await flush();
   check('после resolve mount() — build() уже выполнился (шапка появилась)', root.children.length > 0, true);
   check('шапка вставлена как заголовок', root.querySelector('.tva-header') !== null, true);
@@ -757,15 +767,17 @@ console.log('\n— screens: empty state виден только когда сп�
   check('назад в chat, список пуст — empty state снова виден', h.emptyEl.classList.contains('tva-hidden'), false);
 }
 
-console.log('\n— screens: submit() — реальный порядок вызовов на первом сообщении —');
+console.log('\n— screens: submit() — первое сообщение сразу прячет empty state —');
 {
-  // submit() делает setEmpty(false), затем showScreen('chat') (который
-  // пересчитывает empty по isEmpty()), и только ПОТОМ chat.user(trimmed)
-  // добавляет сообщение в список. Значит showScreen видит список ещё
-  // пустым и empty state возвращается видимым — это реальное поведение
-  // самого этого (взятого дословно из плана) кода, а не выдуманный
-  // "правильный" инвариант; проверяем именно то, что код действительно
-  // делает, чтобы регрессия здесь была видна, а не была бы "и так работало".
+  // Раньше submit() делал setEmpty(false), затем showScreen('chat')
+  // (который пересчитывает empty по isEmpty() из ТЕКУЩЕЙ длины списка), и
+  // только ПОТОМ chat.user(trimmed) добавлял сообщение в список — так что
+  // showScreen видел список ещё пустым и возвращал empty state видимым же
+  // самым первым сообщением. Починка (по замечанию координатора) —
+  // chat.user(trimmed) теперь идёт ДО showScreen('chat'), так что
+  // пересчёт видит уже непустой список. Это и есть тот инвариант, который
+  // требовался с самого начала: "empty state виден, только пока список
+  // пуст и мы не в settings" — без исключения для первого сообщения.
   const h = await bootedPanel();
   h.inputEl.value = 'first ever message';
   fireInput(h.inputEl);
@@ -773,20 +785,19 @@ console.log('\n— screens: submit() — реальный порядок выз�
 
   check('после первого сообщения список больше не пуст', h.listEl.children.length > 0, true);
   check(
-    'ПОРЯДОК ВЫЗОВОВ В submit(): showScreen() выполняется до chat.user(), поэтому empty state ' +
-      'остаётся видимым сразу после первого сообщения, несмотря на то что список уже не пуст — ' +
-      'см. отчёт задачи, помечено как concern, не баг этого теста',
+    'первое сообщение сразу прячет empty state (chat.user() перед showScreen — не после)',
     h.emptyEl.classList.contains('tva-hidden'),
-    false
+    true
   );
 
-  // Второе сообщение: на этот раз showScreen() видит список уже НЕ пустым
-  // (он стал таким после первого chat.user()), так что тут расхождения нет.
+  // Второе сообщение: список уже был непустым и до этого вызова, так что
+  // здесь порядок chat.user()/showScreen() не мог бы замаскировать регрессию —
+  // проверка выше на первом сообщении — единственная, что её ловит.
   h.inputEl.value = 'second message';
   fireInput(h.inputEl);
   h.agent.handlers.onDone({}); // освобождаем busy, иначе второй submit() отсечётся
   click(h.sendBtn);
-  check('на втором сообщении empty state корректно скрыт', h.emptyEl.classList.contains('tva-hidden'), true);
+  check('на втором сообщении empty state остаётся скрытым', h.emptyEl.classList.contains('tva-hidden'), true);
 }
 
 // ============================================================================
