@@ -483,6 +483,32 @@ console.log('\n— монтирование —');
 }
 
 {
+  // waitForWidgetBar и injectButton спрашивают один и тот же селектор дважды
+  // без await между ними — сегодня их не развести, но проверка внутри
+  // injectButton остаётся не просто ради вида: если её однажды разведёт
+  // рефакторинг (например, вставит await между ожиданием и telecreatePage),
+  // откат обязан сработать так же, как раньше срабатывал на
+  // hide_right_toolbar_tabs. Подделываем именно этот зазор — тулбар есть на
+  // первый запрос (готовность) и пропал на второй (injectButton).
+  const doc = makeFullDocument();
+  const realQuerySelector = doc.querySelector;
+  let toolbarQueries = 0;
+  doc.querySelector = (sel) => {
+    if (sel === '[data-name="right-toolbar"]') {
+      toolbarQueries++;
+      return toolbarQueries === 1 ? doc.toolbar : null;
+    }
+    return realQuerySelector(sel);
+  };
+  const L = makeLayout(3, doc);
+  const { call } = load({ layout: L, document: doc });
+  const err = await failure(() => call('widgetbar_mount'));
+  check('тулбар пропал между готовностью и injectButton: отказ', /toolbar/i.test(err), true);
+  check('страница откатилась', L.pages.length, 3);
+  check('элемент страницы убран из DOM', doc.content.children.length, 0);
+}
+
+{
   const doc = makeFullDocument();
   const L = makeLayout(3, doc);
   const { call } = load({ layout: L, document: doc });
@@ -661,6 +687,31 @@ console.log('\n— гонка появления бара —');
   const btn = doc.toolbar.children.find((c) => c.attrs['data-name'] === 'tva-agent');
   check('гонка: кнопка вставлена в тулбар', Boolean(btn), true);
   check('гонка: страница доступна по id', doc.content.children.includes(L.pages[3].el), true);
+}
+
+{
+  // Пока первый widgetbar_mount висит в опросе, второй (повторный boot-вызов,
+  // ретрай) не должен запускать тело mount'а ещё раз — иначе оба зовут
+  // createPage() независимо, и второй молча осиротит страницу, кнопку и
+  // observer первого.
+  const doc = makeDelayedFullDocument();
+  const L = makeLayout(3, doc);
+  const { call, win } = load({ layout: null, document: doc, isAuthenticated: true });
+  setTimeout(() => {
+    doc.reveal();
+    win.widgetbar = { layout: L };
+  }, 350);
+  const [res1, res2] = await Promise.all([call('widgetbar_mount'), call('widgetbar_mount')]);
+  check('одновременные mount: оба резолвятся одним результатом', [res1, res2], [
+    { ok: true, pageId: 'tva-widgetbar-page' },
+    { ok: true, pageId: 'tva-widgetbar-page' },
+  ]);
+  check('одновременные mount: создана только одна страница', L.pages.length, 4);
+  check(
+    'одновременные mount: создана только одна кнопка',
+    doc.toolbar.children.filter((c) => c.attrs['data-name'] === 'tva-agent').length,
+    1
+  );
 }
 
 {

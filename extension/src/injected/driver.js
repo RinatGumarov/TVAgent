@@ -146,6 +146,15 @@
     unloadArmed: false,
     // Must start undefined, not false — the first sync may legitimately be false.
     lastActive: undefined,
+    // The in-flight mount promise, if any. wbMount now awaits
+    // waitForWidgetBar() before touching any of the fields above, so — unlike
+    // every other handler here — it is no longer atomic within one message
+    // dispatch: a second widgetbar_mount message can arrive while the first
+    // is still parked in the poll. Without this, both calls would pass the
+    // "already mounted" fast path (still unset for both), both would call
+    // createPage(), and the second page would silently orphan the first's
+    // page, button and observer.
+    mounting: null,
   };
 
   function layout() {
@@ -493,9 +502,22 @@
     });
   }
 
-  /** Creates a real widget bar page and returns the id of its element. */
-  async function wbMount({ label = 'AI', title = 'TVAgent' } = {}) {
-    if (wb.el && document.contains(wb.el)) return { ok: true, pageId: PAGE_ID };
+  /**
+   * Creates a real widget bar page and returns the id of its element.
+   *
+   * Just a reentrancy guard around wbMountBody(): the await inside means two
+   * widgetbar_mount messages can now overlap (see wb.mounting), and sharing
+   * one in-flight attempt is simpler and safer than trying to make the body
+   * itself concurrency-safe.
+   */
+  function wbMount(opts) {
+    if (wb.el && document.contains(wb.el)) return Promise.resolve({ ok: true, pageId: PAGE_ID });
+    if (wb.mounting) return wb.mounting;
+    wb.mounting = wbMountBody(opts).finally(() => { wb.mounting = null; });
+    return wb.mounting;
+  }
+
+  async function wbMountBody({ label = 'AI', title = 'TVAgent' } = {}) {
     // A mount whose element is gone still owns a page in layout.pages, a button
     // in the toolbar and a live observer that would put that button back —
     // running the body again would leave the user with two identical tabs.
