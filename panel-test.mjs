@@ -730,7 +730,7 @@ function fmtPrice(n, maxDigits) {
 
 {
   const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: '240', price: 121480 }) });
-  const expected = `BTCUSDT · 240 · ${fmtPrice(121480, 2)}`;
+  const expected = `BTCUSDT · 4h · ${fmtPrice(121480, 2)}`;
   check('context row — символ · таймфрейм · цена', h.contextEl.textContent, expected);
 }
 
@@ -739,25 +739,59 @@ function fmtPrice(n, maxDigits) {
   // пока бары не загружены) — context row не должен рисовать лишний
   // разделитель или "undefined".
   const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: '240' }) });
-  check('без цены — только символ и таймфрейм, без висячего "·"', h.contextEl.textContent, 'BTCUSDT · 240');
+  check('без цены — только символ и таймфрейм, без висячего "·"', h.contextEl.textContent, 'BTCUSDT · 4h');
 }
 
 {
   // Инструмент дешевле $1 — два знака после запятой округлили бы его в
   // 0.00. Порог "abs(price) < 1" обязан расширить до 6 знаков.
   const h = await bootedPanel({ caps: caps({ symbol: 'PEPEUSDT', resolution: '60', price: 0.0004567 }) });
-  const expected = `PEPEUSDT · 60 · ${fmtPrice(0.0004567, 6)}`;
+  const expected = `PEPEUSDT · 1h · ${fmtPrice(0.0004567, 6)}`;
   check('субдолларовая цена не округлена в 0.00 — до 6 знаков', h.contextEl.textContent, expected);
   check('фактическое значение видно как есть, не 0.00', h.contextEl.textContent.includes('0.00 '), false);
 }
 
 {
+  // Чип перечисляет то, что реально уходит модели в системном промпте
+  // (agent.js): символ и таймфрейм. Цена в него не входит — агент читает её
+  // инструментами, — так что "… 64,446.70 in context" утверждало неправду.
+  // Она осталась строкой выше, в popover и в title чипа.
   const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: '240', price: 121480 }) });
-  check(
-    'chip-подсказка тоже несёт цену ("... in context")',
-    h.ctxLabelEl.textContent,
-    `BTCUSDT · 240 · ${fmtPrice(121480, 2)} in context`
-  );
+  check('чип называет только символ и таймфрейм', h.ctxLabelEl.textContent, 'BTCUSDT · 4h in context');
+  check('цены в подписи чипа нет', h.ctxLabelEl.textContent.includes(fmtPrice(121480, 2)), false);
+  check('но title чипа несёт всю строку целиком', h.ctxChipEl.attrs.title, `BTCUSDT · 4h · ${fmtPrice(121480, 2)}`);
+}
+
+// ============================================================================
+console.log('\n— таймфрейм пишется по-человечески, не строкой TradingView —');
+
+{
+  // "240" — это четыре часа, но только если уже знаешь. Панель пишет то же,
+  // что кнопка интервала у TradingView. Незнакомое не угадывается, а
+  // пропускается как есть — range-бары и тики сюда попадут именно так.
+  const cases = [
+    ['1', '1m'],
+    ['45', '45m'],
+    ['60', '1h'],
+    ['90', '90m'],
+    ['240', '4h'],
+    ['720', '12h'],
+    ['30S', '30s'],
+    ['D', '1D'],
+    ['1D', '1D'],
+    ['3D', '3D'],
+    ['W', '1W'],
+    ['M', '1M'],
+    ['12M', '12M'],
+    ['10R', '10R'],
+  ];
+  for (const [raw, want] of cases) {
+    const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: raw }) });
+    check(`${raw} → ${want}`, h.contextEl.textContent, `BTCUSDT · ${want}`);
+  }
+
+  const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: '' }) });
+  check('пустой таймфрейм не оставляет висячий "·"', h.contextEl.textContent, 'BTCUSDT');
 }
 
 // ============================================================================
@@ -1092,7 +1126,7 @@ console.log('\n— узкая панель: статус и чип контек�
 
 {
   const h = await bootedPanel({ caps: caps({ symbol: 'BINGX:BTCUSDT.P', resolution: '240', price: 64446.7 }) });
-  const full = `BINGX:BTCUSDT.P · 240 · ${fmtPrice(64446.7, 2)}`;
+  const full = `BINGX:BTCUSDT.P · 4h · ${fmtPrice(64446.7, 2)}`;
 
   // Слово "connected" на узком прячет CSS, а не JS: текст остаётся в DOM
   // (и в title), иначе screen reader теряет статус вместе с версткой.
@@ -1100,14 +1134,14 @@ console.log('\n— узкая панель: статус и чип контек�
   check('статус несёт title — то, что прячет CSS', h.statusEl.attrs.title, 'connected');
 
   check('context row получил title с полной строкой', h.contextEl.attrs.title, full);
-  check('широкий чип — вся привязка целиком', h.ctxLabelEl.textContent, `${full} in context`);
+  check('широкий чип — символ и таймфрейм', h.ctxLabelEl.textContent, 'BINGX:BTCUSDT.P · 4h in context');
 
   h.resize(260);
   check('узкий чип — только тикер, без биржи', h.ctxLabelEl.textContent, 'BTCUSDT.P');
   check('title чипа остаётся полной строкой', h.ctxChipEl.attrs.title, full);
 
   h.resize(400);
-  check('назад на широком — снова вся строка', h.ctxLabelEl.textContent, `${full} in context`);
+  check('назад на широком — снова символ и таймфрейм', h.ctxLabelEl.textContent, 'BINGX:BTCUSDT.P · 4h in context');
 }
 
 {
@@ -1122,7 +1156,7 @@ console.log('\n— popover контекста —');
   const h = await bootedPanel({ caps: caps({ symbol: 'BINGX:BTCUSDT.P', resolution: '240', price: 64446.7 }) });
 
   check('строка symbol заполнена', h.root.querySelector('#tva-ctx-symbol').textContent, 'BINGX:BTCUSDT.P');
-  check('строка timeframe заполнена', h.root.querySelector('#tva-ctx-resolution').textContent, '240');
+  check('строка timeframe заполнена по-человечески', h.root.querySelector('#tva-ctx-resolution').textContent, '4h');
   check('строка цены отформатирована так же, как в шапке', h.root.querySelector('#tva-ctx-price').textContent, fmtPrice(64446.7, 2));
 
   // На широком вся строка и так на виду — открывать нечего.

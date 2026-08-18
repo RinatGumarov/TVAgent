@@ -180,11 +180,38 @@
     }).format(price);
   }
 
-  /** "BINGX:BTCUSDT.P · 240 · 64,446.70", or "no chart" when nothing is bound. */
+  /**
+   * TradingView's resolution strings are an API detail — "240" is four hours,
+   * but only if you already know that. The panel writes what the interval
+   * button writes: 1m, 90m, 4h, 1D, 1W, 1M. Anything this does not recognise
+   * (range bars, ticks, whatever TradingView adds next) is passed through
+   * untouched rather than guessed at.
+   */
+  function formatResolution(res) {
+    if (res == null || res === '') return '';
+    const s = String(res).toUpperCase();
+
+    const seconds = /^(\d+)S$/.exec(s);
+    if (seconds) return `${seconds[1]}s`;
+
+    const minutes = /^(\d+)$/.exec(s);
+    if (minutes) {
+      const total = Number(minutes[1]);
+      return total >= 60 && total % 60 === 0 ? `${total / 60}h` : `${total}m`;
+    }
+
+    // "D" and "1D" are the same daily chart; write both the long way.
+    const calendar = /^(\d*)([DWM])$/.exec(s);
+    if (calendar) return `${calendar[1] || 1}${calendar[2]}`;
+
+    return String(res);
+  }
+
+  /** "BINGX:BTCUSDT.P · 4h · 64,446.70", or "no chart" when nothing is bound. */
   function contextLine() {
     const caps = capabilities || {};
     return caps.symbol
-      ? [caps.symbol, caps.resolution, formatPrice(caps.price)].filter(Boolean).join(' · ')
+      ? [caps.symbol, formatResolution(caps.resolution), formatPrice(caps.price)].filter(Boolean).join(' · ')
       : 'no chart';
   }
 
@@ -197,7 +224,7 @@
 
     ctxChipEl.classList.toggle('tva-hidden', !caps.symbol);
     root.querySelector('#tva-ctx-symbol').textContent = caps.symbol || '—';
-    root.querySelector('#tva-ctx-resolution').textContent = caps.resolution || '—';
+    root.querySelector('#tva-ctx-resolution').textContent = formatResolution(caps.resolution) || '—';
     root.querySelector('#tva-ctx-price').textContent = formatPrice(caps.price) || '—';
     setContextChip();
   }
@@ -210,9 +237,12 @@
   function setContextChip() {
     const caps = capabilities || {};
     if (!caps.symbol) return;
-    const where = contextLine();
-    ctxLabelEl.textContent = narrow ? caps.symbol.split(':').pop() : `${where} in context`;
-    ctxChipEl.title = where;
+    // Symbol and timeframe only: that is what actually travels with every
+    // message. The price is one row up and in the popover, and dropping it
+    // here is also what keeps the chip row to a single line at 400px.
+    const bound = [caps.symbol, formatResolution(caps.resolution)].filter(Boolean).join(' · ');
+    ctxLabelEl.textContent = narrow ? caps.symbol.split(':').pop() : `${bound} in context`;
+    ctxChipEl.title = contextLine();
   }
 
   // ------------------------------------------------------- context popover
