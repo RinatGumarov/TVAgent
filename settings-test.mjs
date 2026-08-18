@@ -214,11 +214,13 @@ const hiddenComposer = [
 const hiddenCtxPop = [
   hiddenList[0],
   { tag: 'footer', id: null, classes: ['tva-composer'] },
+  { tag: 'div', id: null, classes: ['tva-composer-chips'] },
   { tag: 'div', id: 'tva-ctx-pop', classes: ['tva-ctx-pop', 'tva-hidden'] },
 ];
 const visibleCtxPop = [
   hiddenCtxPop[0],
   hiddenCtxPop[1],
+  hiddenCtxPop[2],
   { tag: 'div', id: 'tva-ctx-pop', classes: ['tva-ctx-pop'] },
 ];
 

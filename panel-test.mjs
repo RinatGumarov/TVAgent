@@ -1032,6 +1032,27 @@ console.log('\n— бонус: New chat сбрасывает агента, чи�
 }
 
 // ============================================================================
+console.log('\n— композер: чипы под полем, кнопка отправки внутри —');
+
+{
+  const h = await bootedPanel();
+  const field = h.root.querySelector('.tva-field');
+  const chipRow = h.root.querySelector('.tva-composer-chips');
+
+  // Модель и контекст жили внутри рамки поля и делили ряд с кнопкой отправки:
+  // длинное имя модели переносилось прямо в кнопке-чипе и выдавливало кнопку
+  // за правый край. Теперь у них свой ряд под полем.
+  check('чип модели вынесен из поля', field.contains(h.root.querySelector('#tva-model-chip')), false);
+  check('чип контекста вынесен из поля', field.contains(h.ctxChipEl), false);
+  check('оба чипа лежат в своём ряду', chipRow.contains(h.ctxChipEl) && chipRow.contains(h.root.querySelector('#tva-model-chip')), true);
+  check('кнопка отправки осталась в поле', field.contains(h.sendBtn), true);
+
+  // Popover открывается вверх от ряда чипов, а не от всего композера, — иначе
+  // он всплывал бы над полем в отрыве от чипа, который его открыл.
+  check('popover лежит в ряду чипов — он его якорь', chipRow.contains(h.ctxPopEl), true);
+}
+
+// ============================================================================
 console.log('\n— узкая панель: класс приходит от ширины самой панели —');
 
 {

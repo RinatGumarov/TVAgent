@@ -288,7 +288,7 @@
 
 /* ---------------------------------------------------------------- composer */
 
-#tva-root .tva-composer { padding: 8px 12px 10px; flex: 0 0 auto; position: relative; }
+#tva-root .tva-composer { padding: 8px 12px 10px; flex: 0 0 auto; }
 #tva-root .tva-field {
   border: 1px solid var(--tva-border);
   border-radius: 8px;
@@ -306,7 +306,19 @@
   line-height: 1.5;
   max-height: 160px;
 }
-#tva-root .tva-field-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+#tva-root .tva-field-row { display: flex; align-items: center; justify-content: flex-end; margin-top: 6px; }
+
+/* Model and context sit under the field, not in it. The row is also the
+   popover's containing block, so the popover opens directly above the chip
+   that owns it rather than above the whole composer. */
+#tva-root .tva-composer-chips {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 7px;
+}
 /* A long model name ("gemma4:26b-a4b-it-qat") used to wrap inside the button
    and push the send button past the panel's right edge. Ellipsis, and
    min-width:0 so the flex row is actually allowed to shrink it. */
@@ -338,9 +350,10 @@
 
 #tva-root .tva-ctx-pop {
   position: absolute;
-  left: 12px;
-  right: 12px;
+  left: 0;
+  right: 0;
   bottom: 100%;
+  margin-bottom: 6px;
   z-index: 3;
   background: var(--tva-bg-soft);
   border: 1px solid var(--tva-border);
@@ -359,6 +372,7 @@
 }
 #tva-root .tva-ctx-note { margin: 7px 0 0; font-size: 11px; color: var(--tva-fg-dim); }
 #tva-root .tva-send {
+  flex: 0 0 auto;
   width: 26px;
   height: 26px;
   border-radius: 50%;
@@ -375,6 +389,8 @@
   font-size: 11px;
   color: var(--tva-fg-dim);
   margin: 6px 0 0;
+  /* Lines up with the chip labels above, which carry their own 4px. */
+  padding-left: 4px;
 }
 
 /* ---------------------------------------------------------------- settings */
@@ -436,11 +452,6 @@
 #tva-root.tva-narrow .tva-chip-context { cursor: pointer; }
 #tva-root.tva-narrow .tva-chip-context i { display: inline; }
 #tva-root.tva-narrow .tva-chip-context:hover { color: var(--tva-fg); background: var(--tva-border); }
-/* The ticker is short and it is the whole point; the model name is long and
-   already truncated. So the context chip stops shrinking and the model chip
-   absorbs what the row is missing — capped, so a long ticker cannot do the
-   same thing back to it. */
-#tva-root.tva-narrow .tva-chip-context { flex: 0 0 auto; max-width: 45%; }
 #tva-root.tva-narrow .tva-composer-hint { display: none; }
 
 #tva-root.tva-narrow .tva-header { padding: 0 4px 0 8px; }
@@ -451,8 +462,7 @@
 #tva-root.tva-narrow .tva-composer { padding: 8px 8px 10px; }
 /* "OpenAI-compatible" wraps to two lines inside its own segment otherwise. */
 #tva-root.tva-narrow .tva-seg button { font-size: 11px; padding: 6px 2px; }
-#tva-root.tva-narrow .tva-ctx-pop { left: 8px; right: 8px; }
-#tva-root.tva-narrow .tva-field-row { gap: 4px; }
+#tva-root.tva-narrow .tva-composer-chips { gap: 4px; }
 #tva-root.tva-narrow .tva-empty h2 { font-size: 15px; }
 #tva-root.tva-narrow .tva-suggestion { padding: 9px 10px; }
 
