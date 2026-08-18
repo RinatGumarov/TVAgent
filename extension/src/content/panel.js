@@ -175,11 +175,36 @@
     }).format(price);
   }
 
-  /** "BINGX:BTCUSDT.P · 240 · 64,446.70", or "no chart" when nothing is bound. */
+  /**
+   * TradingView's resolution strings written the way its interval button
+   * writes them: 1m, 90m, 4h, 1D, 1W, 1M. Anything unrecognised passes
+   * through untouched.
+   */
+  function formatResolution(res) {
+    if (res == null || res === '') return '';
+    const s = String(res).toUpperCase();
+
+    const seconds = /^(\d+)S$/.exec(s);
+    if (seconds) return `${seconds[1]}s`;
+
+    const minutes = /^(\d+)$/.exec(s);
+    if (minutes) {
+      const total = Number(minutes[1]);
+      return total >= 60 && total % 60 === 0 ? `${total / 60}h` : `${total}m`;
+    }
+
+    // "D" and "1D" are the same daily chart; write both the long way.
+    const calendar = /^(\d*)([DWM])$/.exec(s);
+    if (calendar) return `${calendar[1] || 1}${calendar[2]}`;
+
+    return String(res);
+  }
+
+  /** "BINGX:BTCUSDT.P · 4h · 64,446.70", or "no chart" when nothing is bound. */
   function contextLine() {
     const caps = capabilities || {};
     return caps.symbol
-      ? [caps.symbol, caps.resolution, formatPrice(caps.price)].filter(Boolean).join(' · ')
+      ? [caps.symbol, formatResolution(caps.resolution), formatPrice(caps.price)].filter(Boolean).join(' · ')
       : 'no chart';
   }
 
@@ -192,7 +217,7 @@
 
     ctxChipEl.classList.toggle('tva-hidden', !caps.symbol);
     root.querySelector('#tva-ctx-symbol').textContent = caps.symbol || '—';
-    root.querySelector('#tva-ctx-resolution').textContent = caps.resolution || '—';
+    root.querySelector('#tva-ctx-resolution').textContent = formatResolution(caps.resolution) || '—';
     root.querySelector('#tva-ctx-price').textContent = formatPrice(caps.price) || '—';
     setContextChip();
   }
@@ -204,9 +229,10 @@
   function setContextChip() {
     const caps = capabilities || {};
     if (!caps.symbol) return;
-    const where = contextLine();
-    ctxLabelEl.textContent = narrow ? caps.symbol.split(':').pop() : `${where} in context`;
-    ctxChipEl.title = where;
+    // Symbol and timeframe only: the price does not travel with the message.
+    const bound = [caps.symbol, formatResolution(caps.resolution)].filter(Boolean).join(' · ');
+    ctxLabelEl.textContent = narrow ? caps.symbol.split(':').pop() : `${bound} in context`;
+    ctxChipEl.title = contextLine();
   }
 
   // ------------------------------------------------------- context popover
