@@ -65,20 +65,21 @@
       </div>
 
       <footer class="tva-composer">
-        <div class="tva-ctx-pop tva-hidden" id="tva-ctx-pop" role="dialog" aria-label="What the agent is bound to">
-          <div class="tva-ctx-row"><span>Symbol</span><b id="tva-ctx-symbol">—</b></div>
-          <div class="tva-ctx-row"><span>Timeframe</span><b id="tva-ctx-resolution">—</b></div>
-          <div class="tva-ctx-row"><span>Last price</span><b id="tva-ctx-price">—</b></div>
-          <p class="tva-ctx-note">Symbol and timeframe go with every message. Prices and bars the agent reads itself, with its own tools.</p>
-        </div>
         <div class="tva-field">
           <textarea id="tva-input" rows="1" placeholder="Ask, or tell me what to change…"></textarea>
           <div class="tva-field-row">
-            <button class="tva-chip" id="tva-model-chip" type="button">Claude Opus</button>
-            <button class="tva-chip tva-chip-context tva-hidden" id="tva-in-context" type="button" aria-expanded="false"><span id="tva-in-context-label"></span><i>&#9662;</i></button>
-            <span class="tva-spacer"></span>
             <button class="tva-send" id="tva-send" disabled aria-label="Send">&#8593;</button>
           </div>
+        </div>
+        <div class="tva-composer-chips">
+          <div class="tva-ctx-pop tva-hidden" id="tva-ctx-pop" role="dialog" aria-label="What the agent is bound to">
+            <div class="tva-ctx-row"><span>Symbol</span><b id="tva-ctx-symbol">—</b></div>
+            <div class="tva-ctx-row"><span>Timeframe</span><b id="tva-ctx-resolution">—</b></div>
+            <div class="tva-ctx-row"><span>Last price</span><b id="tva-ctx-price">—</b></div>
+            <p class="tva-ctx-note">Symbol and timeframe go with every message. Prices and bars the agent reads itself, with its own tools.</p>
+          </div>
+          <button class="tva-chip" id="tva-model-chip" type="button">Claude Opus</button>
+          <button class="tva-chip tva-chip-context tva-hidden" id="tva-in-context" type="button" aria-expanded="false"><span id="tva-in-context-label"></span><i>&#9662;</i></button>
         </div>
         <p class="tva-composer-hint">Enter to send · Shift+Enter for a new line</p>
       </footer>
