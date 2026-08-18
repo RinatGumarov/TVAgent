@@ -21,11 +21,19 @@
 
   const esc = window.TVAgentChat.esc;
 
+  /**
+   * Panel width, in px, below which the narrow layout takes over. Read here
+   * and in panel.css's narrow section — they describe the same switch, so they
+   * move together.
+   */
+  const NARROW_WIDTH = 320;
+
   let root, chat, settings, listEl, settingsEl, emptyEl, inputEl, sendBtn;
-  let contextEl, statusEl, modelChipEl;
+  let contextEl, statusEl, modelChipEl, ctxChipEl, ctxLabelEl, ctxPopEl;
   let agent = null;
   let capabilities = null;
   let busy = false;
+  let narrow = false;
 
   // ---------------------------------------------------------------- markup
 
@@ -59,11 +67,17 @@
       </div>
 
       <footer class="tva-composer">
+        <div class="tva-ctx-pop tva-hidden" id="tva-ctx-pop" role="dialog" aria-label="What the agent is bound to">
+          <div class="tva-ctx-row"><span>Symbol</span><b id="tva-ctx-symbol">—</b></div>
+          <div class="tva-ctx-row"><span>Timeframe</span><b id="tva-ctx-resolution">—</b></div>
+          <div class="tva-ctx-row"><span>Last price</span><b id="tva-ctx-price">—</b></div>
+          <p class="tva-ctx-note">Symbol and timeframe go with every message. Prices and bars the agent reads itself, with its own tools.</p>
+        </div>
         <div class="tva-field">
           <textarea id="tva-input" rows="1" placeholder="Ask, or tell me what to change…"></textarea>
           <div class="tva-field-row">
             <button class="tva-chip" id="tva-model-chip" type="button">Claude Opus</button>
-            <span class="tva-chip-hint" id="tva-in-context"></span>
+            <button class="tva-chip tva-chip-context tva-hidden" id="tva-in-context" type="button" aria-expanded="false"><span id="tva-in-context-label"></span><i>&#9662;</i></button>
             <span class="tva-spacer"></span>
             <button class="tva-send" id="tva-send" disabled aria-label="Send">&#8593;</button>
           </div>
@@ -80,6 +94,9 @@
     contextEl = root.querySelector('#tva-where');
     statusEl = root.querySelector('#tva-status');
     modelChipEl = root.querySelector('#tva-model-chip');
+    ctxChipEl = root.querySelector('#tva-in-context');
+    ctxLabelEl = root.querySelector('#tva-in-context-label');
+    ctxPopEl = root.querySelector('#tva-ctx-pop');
 
     chat = window.TVAgentChat.create(listEl);
 
@@ -103,6 +120,8 @@
     root.querySelector('#tva-gear').addEventListener('click', () => toggleSettings());
     root.querySelector('#tva-close').addEventListener('click', () => window.TVAgentMount.toggle());
     modelChipEl.addEventListener('click', () => toggleSettings(true));
+    ctxChipEl.addEventListener('click', toggleContext);
+    watchWidth();
 
     sendBtn.addEventListener('click', () => (busy ? agent?.cancel() : submit(inputEl.value)));
     inputEl.addEventListener('input', () => {
@@ -121,6 +140,7 @@
   // ---------------------------------------------------------------- screens
 
   function showScreen(which) {
+    closeContext();
     settingsEl.classList.toggle('tva-hidden', which !== 'settings');
     listEl.classList.toggle('tva-hidden', which === 'settings');
     emptyEl.classList.toggle('tva-hidden', which === 'settings' || !isEmpty());
@@ -139,6 +159,9 @@
   function setStatus(kind, text) {
     statusEl.className = 'tva-status ' + kind;
     statusEl.querySelector('span').textContent = text;
+    // Narrow hides the word and leaves only the dot — the title is where the
+    // word goes, so hovering still answers "connected to what, exactly?".
+    statusEl.title = text;
   }
 
   /**
@@ -156,13 +179,102 @@
     }).format(price);
   }
 
-  function setContext() {
+  /** "BINGX:BTCUSDT.P · 240 · 64,446.70", or "no chart" when nothing is bound. */
+  function contextLine() {
     const caps = capabilities || {};
-    const where = caps.symbol
+    return caps.symbol
       ? [caps.symbol, caps.resolution, formatPrice(caps.price)].filter(Boolean).join(' · ')
       : 'no chart';
+  }
+
+  function setContext() {
+    const caps = capabilities || {};
+    const where = contextLine();
     contextEl.textContent = where;
-    root.querySelector('#tva-in-context').textContent = caps.symbol ? `${where} in context` : '';
+    // The row is one line and truncates; the title is the rest of it.
+    contextEl.title = where;
+
+    ctxChipEl.classList.toggle('tva-hidden', !caps.symbol);
+    root.querySelector('#tva-ctx-symbol').textContent = caps.symbol || '—';
+    root.querySelector('#tva-ctx-resolution').textContent = caps.resolution || '—';
+    root.querySelector('#tva-ctx-price').textContent = formatPrice(caps.price) || '—';
+    setContextChip();
+  }
+
+  /**
+   * Wide spells the whole binding out next to the model. Narrow has room for
+   * the ticker and nothing else, so the exchange prefix, the timeframe and the
+   * price move into the popover the chip opens.
+   */
+  function setContextChip() {
+    const caps = capabilities || {};
+    if (!caps.symbol) return;
+    const where = contextLine();
+    ctxLabelEl.textContent = narrow ? caps.symbol.split(':').pop() : `${where} in context`;
+    ctxChipEl.title = where;
+  }
+
+  // ------------------------------------------------------- context popover
+
+  const contextOpen = () => !ctxPopEl.classList.contains('tva-hidden');
+
+  /** Wide already shows the whole line — there is nothing left to reveal. */
+  function toggleContext() {
+    if (!narrow) return;
+    if (contextOpen()) closeContext();
+    else openContext();
+  }
+
+  function openContext() {
+    ctxPopEl.classList.remove('tva-hidden');
+    ctxChipEl.setAttribute('aria-expanded', 'true');
+    // Capture, not bubble: a bubbling listener registered from inside the
+    // chip's own click handler would still catch that same click on its way up
+    // to the document and close the popover in the gesture that opened it.
+    document.addEventListener('click', onDocumentClick, true);
+    document.addEventListener('keydown', onDocumentKey, true);
+  }
+
+  function closeContext() {
+    if (!contextOpen()) return;
+    ctxPopEl.classList.add('tva-hidden');
+    ctxChipEl.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('click', onDocumentClick, true);
+    document.removeEventListener('keydown', onDocumentKey, true);
+  }
+
+  function onDocumentClick(e) {
+    if (ctxPopEl.contains(e.target) || ctxChipEl.contains(e.target)) return;
+    closeContext();
+  }
+
+  function onDocumentKey(e) {
+    if (e.key === 'Escape') closeContext();
+  }
+
+  // ----------------------------------------------------------------- width
+
+  /**
+   * The panel's own width picks the layout, not the viewport's — in the widget
+   * bar TradingView sets it, in the overlay the resize handle does, and
+   * neither of those is something a media query can see.
+   */
+  function watchWidth() {
+    new window.ResizeObserver((entries) => {
+      const width = entries[entries.length - 1].contentRect.width;
+      // A hidden panel measures 0. That is "not rendered", not "narrow".
+      if (width > 0) setNarrow(width <= NARROW_WIDTH);
+    }).observe(root);
+  }
+
+  function setNarrow(next) {
+    if (next === narrow) return;
+    narrow = next;
+    root.classList.toggle('tva-narrow', narrow);
+    // Widening puts the whole line back on the chip; a popover repeating it
+    // would just sit on top of the answer.
+    if (!narrow) closeContext();
+    setContextChip();
   }
 
   /** Same shape as the "no chart" branch below, reused by the boot-failure paths. */

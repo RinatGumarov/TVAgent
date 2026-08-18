@@ -242,6 +242,11 @@ function makeElement(tagName) {
     setAttribute(name, value) {
       el.attrs[name] = value;
     },
+    // Нужен ровно popover'у: клик по документу закрывает его, только если
+    // цель не внутри чипа и не внутри самого popover.
+    contains(node) {
+      return node === el || descendants(el).includes(node);
+    },
     focus() {
       el._focusCount++;
     },
@@ -258,6 +263,14 @@ function makeElement(tagName) {
     get() { return textOf(el); },
     set(v) { el.children = [{ nodeType: 'text', text: String(v), parent: el }]; },
   });
+  // title рефлектируется в атрибут, как в настоящем DOM: разметка panel.js
+  // задаёт его атрибутом (кнопки шапки), а код — свойством (статус, context
+  // row, чип контекста). Без рефлексии это были бы два независимых хранилища,
+  // и проверка читала бы не то, что выставил panel.js.
+  Object.defineProperty(el, 'title', {
+    get() { return el.attrs.title === undefined ? '' : el.attrs.title; },
+    set(v) { el.attrs.title = String(v); },
+  });
   Object.defineProperty(el, 'classList', { get: () => makeClassList(el) });
 
   return el;
@@ -267,7 +280,36 @@ function makeDocument() {
   // documentElement is only needed for the mount()-rejects path: nothing
   // else in panel.js touches document.* directly, they all go through the
   // root/host elements the mocks hand it.
-  return { createElement: (tag) => makeElement(tag), documentElement: makeElement('html') };
+  //
+  // Кроме document-слушателей popover'а: они вешаются на время, пока он
+  // открыт, и снимаются при закрытии. capture-флаг — часть ключа, а не
+  // игнорируется: в настоящем DOM removeEventListener с другим флагом
+  // ничего не снимает (утечка слушателя), и подделка обязана вести себя
+  // так же, иначе проверка "после закрытия слушателей не осталось" зелёная
+  // на коде, который течёт.
+  const listeners = {};
+  const key = (type, capture) => `${type}${capture ? '!capture' : ''}`;
+  return {
+    createElement: (tag) => makeElement(tag),
+    documentElement: makeElement('html'),
+    listeners,
+    addEventListener(type, fn, capture) {
+      const k = key(type, capture);
+      (listeners[k] = listeners[k] || []).push(fn);
+    },
+    removeEventListener(type, fn, capture) {
+      const arr = listeners[key(type, capture)] || [];
+      const i = arr.indexOf(fn);
+      if (i !== -1) arr.splice(i, 1);
+    },
+    /** Сколько слушателей висит сейчас — чем проверяется снятие. */
+    listenerCount(type, capture = true) {
+      return (listeners[key(type, capture)] || []).length;
+    },
+    fire(type, evt, capture = true) {
+      (listeners[key(type, capture)] || []).slice().forEach((fn) => fn(evt));
+    },
+  };
 }
 
 function click(el) {
@@ -327,6 +369,23 @@ function makeChatModule(doc) {
   }
 
   return { esc, create };
+}
+
+/**
+ * ResizeObserver-заглушка. panel.js берёт его как window.ResizeObserver, а не
+ * как глобал, именно ради этого: в Node настоящего нет. Хранит колбэк и
+ * наблюдаемые узлы; resize(width) зовёт колбэк с тем же контрактом entries,
+ * что и настоящий (panel.js читает последнюю запись).
+ */
+function makeResizeObserverStub() {
+  const state = { cb: null, observed: [] };
+  state.ctor = class {
+    constructor(cb) { state.cb = cb; }
+    observe(el) { state.observed.push(el); }
+    disconnect() {}
+  };
+  state.resize = (...widths) => state.cb(widths.map((width) => ({ contentRect: { width } })));
+  return state;
 }
 
 /** mount-мок с управляемым мгновенным результатом (mode/root заданы сразу). */
@@ -425,9 +484,11 @@ function load({ mount, settings, bridge, runtime, chat }) {
   win.TVAgentSettings = settings;
   win.TVAgentBridge = bridge;
   win.TVAgentRuntime = runtime;
+  const ro = makeResizeObserverStub();
+  win.ResizeObserver = ro.ctor;
   const chr = makeChrome();
   new Function('window', 'document', 'chrome', src)(win, doc, chr);
-  return { win, doc, chrome: chr };
+  return { win, doc, chrome: chr, ro };
 }
 
 /**
@@ -445,13 +506,18 @@ async function bootedPanel(overrides = {}) {
   const bridge = overrides.bridge || makeBridgeMock(overrides.caps || caps());
   const runtime = overrides.runtime || makeRuntimeMock();
 
-  const { win, doc, chrome } = load({ mount, settings, bridge, runtime, chat: overrides.chat });
+  const { win, doc, chrome, ro } = load({ mount, settings, bridge, runtime, chat: overrides.chat });
   await flush();
   await flush();
+  if (overrides.width !== undefined) ro.resize(overrides.width);
 
   const q = (sel) => root.querySelector(sel);
   return {
-    win, doc, chrome, root, mount, settings, bridge, runtime,
+    win, doc, chrome, ro, root, mount, settings, bridge, runtime,
+    resize: ro.resize,
+    ctxChipEl: q('#tva-in-context'),
+    ctxLabelEl: q('#tva-in-context-label'),
+    ctxPopEl: q('#tva-ctx-pop'),
     listEl: q('#tva-list'),
     settingsEl: q('#tva-settings'),
     emptyEl: q('#tva-empty'),
@@ -689,7 +755,7 @@ function fmtPrice(n, maxDigits) {
   const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: '240', price: 121480 }) });
   check(
     'chip-подсказка тоже несёт цену ("... in context")',
-    h.root.querySelector('#tva-in-context').textContent,
+    h.ctxLabelEl.textContent,
     `BTCUSDT · 240 · ${fmtPrice(121480, 2)} in context`
   );
 }
@@ -963,6 +1029,145 @@ console.log('\n— бонус: New chat сбрасывает агента, чи�
   check('New chat чистит список', h.listEl.children.length, 0);
   check('New chat возвращает на экран chat', h.settingsEl.classList.contains('tva-hidden'), true);
   check('New chat снова показывает empty state', h.emptyEl.classList.contains('tva-hidden'), false);
+}
+
+// ============================================================================
+console.log('\n— узкая панель: класс приходит от ширины самой панели —');
+
+{
+  const h = await bootedPanel({ caps: caps({ symbol: 'BINGX:BTCUSDT.P', resolution: '240', price: 64446.7 }) });
+
+  // Сравнение по ссылке, не JSON.stringify: узлы подделки DOM ссылаются на
+  // родителя, и сериализация зациклится.
+  check('ResizeObserver наблюдает ровно один узел', h.ro.observed.length, 1);
+  check('и это корень панели', h.ro.observed[0] === h.root, true);
+  check('до первого замера панель считается широкой', h.root.classList.contains('tva-narrow'), false);
+
+  h.resize(280);
+  check('280px — узко', h.root.classList.contains('tva-narrow'), true);
+
+  h.resize(400);
+  check('400px — снова широко', h.root.classList.contains('tva-narrow'), false);
+
+  // Скрытая панель (display:none у overlay, неактивная страница виджет-бара)
+  // меряется в 0. Это "не отрисована", а не "узкая": иначе каждое закрытие
+  // панели молча переключало бы раскладку под ней.
+  h.resize(0);
+  check('нулевая ширина ничего не меняет', h.root.classList.contains('tva-narrow'), false);
+
+  // Порог общий с narrow-секцией panel.css — 320px включительно.
+  h.resize(320);
+  check('ровно 320px — узко', h.root.classList.contains('tva-narrow'), true);
+  h.resize(321);
+  check('321px — широко', h.root.classList.contains('tva-narrow'), false);
+
+  // Настоящий ResizeObserver отдаёт пачку записей; актуальна последняя.
+  h.resize(400, 260);
+  check('берётся последняя запись пачки, а не первая', h.root.classList.contains('tva-narrow'), true);
+}
+
+// ============================================================================
+console.log('\n— узкая панель: статус и чип контекста —');
+
+{
+  const h = await bootedPanel({ caps: caps({ symbol: 'BINGX:BTCUSDT.P', resolution: '240', price: 64446.7 }) });
+  const full = `BINGX:BTCUSDT.P · 240 · ${fmtPrice(64446.7, 2)}`;
+
+  // Слово "connected" на узком прячет CSS, а не JS: текст остаётся в DOM
+  // (и в title), иначе screen reader теряет статус вместе с версткой.
+  check('слово статуса осталось в DOM', h.statusEl.querySelector('span').textContent, 'connected');
+  check('статус несёт title — то, что прячет CSS', h.statusEl.attrs.title, 'connected');
+
+  check('context row получил title с полной строкой', h.contextEl.attrs.title, full);
+  check('широкий чип — вся привязка целиком', h.ctxLabelEl.textContent, `${full} in context`);
+
+  h.resize(260);
+  check('узкий чип — только тикер, без биржи', h.ctxLabelEl.textContent, 'BTCUSDT.P');
+  check('title чипа остаётся полной строкой', h.ctxChipEl.attrs.title, full);
+
+  h.resize(400);
+  check('назад на широком — снова вся строка', h.ctxLabelEl.textContent, `${full} in context`);
+}
+
+{
+  const h = await bootedPanel({ caps: caps({ symbol: '', resolution: '' }) });
+  check('без символа чип контекста скрыт целиком', h.ctxChipEl.classList.contains('tva-hidden'), true);
+}
+
+// ============================================================================
+console.log('\n— popover контекста —');
+
+{
+  const h = await bootedPanel({ caps: caps({ symbol: 'BINGX:BTCUSDT.P', resolution: '240', price: 64446.7 }) });
+
+  check('строка symbol заполнена', h.root.querySelector('#tva-ctx-symbol').textContent, 'BINGX:BTCUSDT.P');
+  check('строка timeframe заполнена', h.root.querySelector('#tva-ctx-resolution').textContent, '240');
+  check('строка цены отформатирована так же, как в шапке', h.root.querySelector('#tva-ctx-price').textContent, fmtPrice(64446.7, 2));
+
+  // На широком вся строка и так на виду — открывать нечего.
+  click(h.ctxChipEl);
+  check('на широком клик по чипу ничего не открывает', h.ctxPopEl.classList.contains('tva-hidden'), true);
+  check('и document-слушателей не вешает', h.doc.listenerCount('click'), 0);
+
+  h.resize(260);
+  click(h.ctxChipEl);
+  check('на узком клик открывает popover', h.ctxPopEl.classList.contains('tva-hidden'), false);
+  check('aria-expanded=true', h.ctxChipEl.attrs['aria-expanded'], 'true');
+
+  click(h.ctxChipEl);
+  check('повторный клик закрывает', h.ctxPopEl.classList.contains('tva-hidden'), true);
+  check('aria-expanded=false', h.ctxChipEl.attrs['aria-expanded'], 'false');
+  check('слушатели сняты тем же capture-флагом', h.doc.listenerCount('click'), 0);
+}
+
+{
+  const h = await bootedPanel();
+  h.resize(260);
+  click(h.ctxChipEl);
+
+  // Клик внутрь самого popover (по строке символа) не должен его закрывать —
+  // текст в нём выделяют мышью.
+  h.doc.fire('click', { target: h.root.querySelector('#tva-ctx-symbol') });
+  check('клик внутри popover не закрывает', h.ctxPopEl.classList.contains('tva-hidden'), false);
+
+  h.doc.fire('click', { target: h.ctxLabelEl });
+  check('клик по подписи чипа не закрывает (это его же кнопка)', h.ctxPopEl.classList.contains('tva-hidden'), false);
+
+  h.doc.fire('click', { target: h.listEl });
+  check('клик снаружи закрывает', h.ctxPopEl.classList.contains('tva-hidden'), true);
+  check('и снимает оба document-слушателя', [h.doc.listenerCount('click'), h.doc.listenerCount('keydown')], [0, 0]);
+}
+
+{
+  const h = await bootedPanel();
+  h.resize(260);
+  click(h.ctxChipEl);
+
+  h.doc.fire('keydown', { key: 'a' });
+  check('посторонняя клавиша не закрывает', h.ctxPopEl.classList.contains('tva-hidden'), false);
+
+  h.doc.fire('keydown', { key: 'Escape' });
+  check('Escape закрывает', h.ctxPopEl.classList.contains('tva-hidden'), true);
+}
+
+{
+  // Расширение панели возвращает всю строку на сам чип — popover поверх неё
+  // повторял бы уже видимый ответ.
+  const h = await bootedPanel();
+  h.resize(260);
+  click(h.ctxChipEl);
+  h.resize(400);
+  check('переход на широкое закрывает открытый popover', h.ctxPopEl.classList.contains('tva-hidden'), true);
+  check('слушатели сняты и здесь', h.doc.listenerCount('click'), 0);
+}
+
+{
+  // Экран настроек прячет композер целиком — popover висел бы над пустотой.
+  const h = await bootedPanel();
+  h.resize(260);
+  click(h.ctxChipEl);
+  click(h.root.querySelector('#tva-gear'));
+  check('открытие настроек закрывает popover', h.ctxPopEl.classList.contains('tva-hidden'), true);
 }
 
 console.log(failed ? `\n${failed} провалов\n` : '\nвсё зелёное\n');

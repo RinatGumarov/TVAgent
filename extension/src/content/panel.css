@@ -101,8 +101,16 @@
   border-bottom: 1px solid var(--tva-border);
   flex: 0 0 auto;
 }
-#tva-root .tva-context-where { color: var(--tva-fg); }
-#tva-root .tva-status { display: inline-flex; align-items: center; gap: 6px; }
+/* Truncates rather than wrapping: a second line here moves the whole body
+   down, and the full string is one hover away in the title. */
+#tva-root .tva-context-where {
+  color: var(--tva-fg);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#tva-root .tva-status { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 #tva-root .tva-dot {
   width: 6px;
   height: 6px;
@@ -280,7 +288,7 @@
 
 /* ---------------------------------------------------------------- composer */
 
-#tva-root .tva-composer { padding: 8px 12px 10px; flex: 0 0 auto; }
+#tva-root .tva-composer { padding: 8px 12px 10px; flex: 0 0 auto; position: relative; }
 #tva-root .tva-field {
   border: 1px solid var(--tva-border);
   border-radius: 8px;
@@ -299,6 +307,9 @@
   max-height: 160px;
 }
 #tva-root .tva-field-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+/* A long model name ("gemma4:26b-a4b-it-qat") used to wrap inside the button
+   and push the send button past the panel's right edge. Ellipsis, and
+   min-width:0 so the flex row is actually allowed to shrink it. */
 #tva-root .tva-chip {
   border: none;
   background: none;
@@ -307,9 +318,46 @@
   padding: 2px 4px;
   border-radius: 4px;
   cursor: pointer;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 #tva-root .tva-chip:hover { color: var(--tva-fg); background: var(--tva-border); }
-#tva-root .tva-chip-hint { font-size: 12px; color: var(--tva-fg-dim); }
+
+/* Wide states the binding inline and is not a control — only the narrow rules
+   below turn it into something worth clicking. */
+#tva-root .tva-chip-context { cursor: default; }
+#tva-root .tva-chip-context:hover { color: var(--tva-fg-dim); background: none; }
+/* The caret only earns its place once the chip actually opens something. */
+#tva-root .tva-chip-context i { display: none; font-style: normal; font-size: 10px; margin-left: 4px; }
+
+/* ------------------------------------------------------- context popover */
+
+#tva-root .tva-ctx-pop {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 100%;
+  z-index: 3;
+  background: var(--tva-bg-soft);
+  border: 1px solid var(--tva-border);
+  border-radius: 8px;
+  padding: 9px 11px;
+  font-size: 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+#tva-root .tva-ctx-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+#tva-root .tva-ctx-row span { color: var(--tva-fg-dim); flex: 0 0 auto; }
+#tva-root .tva-ctx-row b {
+  font-weight: 400;
+  margin-left: auto;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+#tva-root .tva-ctx-note { margin: 7px 0 0; font-size: 11px; color: var(--tva-fg-dim); }
 #tva-root .tva-send {
   width: 26px;
   height: 26px;
@@ -371,6 +419,42 @@
 #tva-root .tva-seg button:last-child { border-right: none; }
 #tva-root .tva-seg button.on { background: var(--tva-accent-tint); color: var(--tva-accent); }
 #tva-root .tva-check { display: flex; align-items: center; gap: 7px; font-size: 12px; cursor: pointer; }
+
+/* ---------------------------------------------------------------- narrow
+
+   Everything that only holds together above ~320px of panel. The class comes
+   from a ResizeObserver in panel.js, not a media query: the panel is not the
+   viewport — in the widget bar TradingView owns its width, in the overlay the
+   resize handle does. panel.js reads the same class to decide the context
+   chip's label and whether the popover opens, which is why this is a class and
+   not a container query — one switch, one threshold, both sides. */
+
+/* The dot already carries the state; the word is what does not fit. Still in
+   the DOM and still in the title, so hover and screen readers keep it. */
+#tva-root.tva-narrow .tva-status span { display: none; }
+
+#tva-root.tva-narrow .tva-chip-context { cursor: pointer; }
+#tva-root.tva-narrow .tva-chip-context i { display: inline; }
+#tva-root.tva-narrow .tva-chip-context:hover { color: var(--tva-fg); background: var(--tva-border); }
+/* The ticker is short and it is the whole point; the model name is long and
+   already truncated. So the context chip stops shrinking and the model chip
+   absorbs what the row is missing — capped, so a long ticker cannot do the
+   same thing back to it. */
+#tva-root.tva-narrow .tva-chip-context { flex: 0 0 auto; max-width: 45%; }
+#tva-root.tva-narrow .tva-composer-hint { display: none; }
+
+#tva-root.tva-narrow .tva-header { padding: 0 4px 0 8px; }
+#tva-root.tva-narrow .tva-context { padding: 0 8px 8px; }
+#tva-root.tva-narrow .tva-list,
+#tva-root.tva-narrow .tva-empty,
+#tva-root.tva-narrow .tva-settings { padding: 10px 8px; }
+#tva-root.tva-narrow .tva-composer { padding: 8px 8px 10px; }
+/* "OpenAI-compatible" wraps to two lines inside its own segment otherwise. */
+#tva-root.tva-narrow .tva-seg button { font-size: 11px; padding: 6px 2px; }
+#tva-root.tva-narrow .tva-ctx-pop { left: 8px; right: 8px; }
+#tva-root.tva-narrow .tva-field-row { gap: 4px; }
+#tva-root.tva-narrow .tva-empty h2 { font-size: 15px; }
+#tva-root.tva-narrow .tva-suggestion { padding: 9px 10px; }
 
 /* ---------------------------------------------------------------- tab button
 

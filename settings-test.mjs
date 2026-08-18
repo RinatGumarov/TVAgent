@@ -204,6 +204,23 @@ const hiddenComposer = [
   hiddenList[0],
   { tag: 'footer', id: null, classes: ['tva-composer', 'tva-hidden'] },
 ];
+/**
+ * Пятый переключатель — popover контекста в композере. Ту же ловушку каскада
+ * он поймал бы первым: у него нет своего display, так что закрытым он держится
+ * только на .tva-hidden, а любое будущее правило с display на .tva-ctx-pop
+ * (например display:grid для строк) объявлено позже и при равной
+ * специфичности победило бы — popover остался бы висеть открытым.
+ */
+const hiddenCtxPop = [
+  hiddenList[0],
+  { tag: 'footer', id: null, classes: ['tva-composer'] },
+  { tag: 'div', id: 'tva-ctx-pop', classes: ['tva-ctx-pop', 'tva-hidden'] },
+];
+const visibleCtxPop = [
+  hiddenCtxPop[0],
+  hiddenCtxPop[1],
+  { tag: 'div', id: 'tva-ctx-pop', classes: ['tva-ctx-pop'] },
+];
 
 const displayFor = (path) => {
   let value = 'block';
@@ -228,6 +245,8 @@ check('скрытый список скрыт', displayFor(hiddenList), 'none');
 check('скрытый empty state скрыт', displayFor(hiddenEmpty), 'none');
 check('скрытый settings-экран скрыт', displayFor(hiddenSettings), 'none');
 check('скрытый композер скрыт', displayFor(hiddenComposer), 'none');
+check('закрытый popover контекста скрыт', displayFor(hiddenCtxPop), 'none');
+check('открытый popover контекста виден', displayFor(visibleCtxPop) !== 'none', true);
 
 console.log(failed ? `\n ПРОВАЛЕНО: ${failed}\n` : '\n всё зелёное\n');
 process.exit(failed ? 1 : 0);
