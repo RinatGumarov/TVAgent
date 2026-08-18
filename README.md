@@ -10,7 +10,9 @@ Ask it "add EMA 50 and 200", "mark the high and low of the visible range", or
 
 ## Install
 
-1. Clone this repository.
+TVAgent is not on the Chrome Web Store yet, so it is loaded unpacked:
+
+1. Clone this repository, or unzip a [release](https://github.com/RinatGumarov/TVAgent/releases).
 2. Open `chrome://extensions` and turn on **Developer mode**.
 3. Click **Load unpacked** and select the `extension/` folder.
 
@@ -81,6 +83,9 @@ editor, are not offered.
 - Only the bars TradingView has loaded, about 300, are available to the model.
 - Horizontal, vertical and trend lines and text labels are the drawings
   exposed. Other drawing tools are not.
+- Only local OpenAI-compatible endpoints work out of the box. The manifest
+  grants `localhost` and `127.0.0.1`; a hosted provider needs its host added
+  to `host_permissions`.
 
 ## Debugging
 
@@ -91,3 +96,14 @@ driver is reachable by hand:
 ```javascript
 await window.__tvAgent.call('get_chart_context')
 ```
+
+## Privacy
+
+TVAgent has no backend, no analytics and no account. Settings and your API key
+stay in the extension's local storage; prompts and chart data go only to the
+model provider you configure. See [PRIVACY.md](PRIVACY.md).
+
+## License
+
+[MIT](LICENSE). TVAgent is an independent project and is not affiliated with
+or endorsed by TradingView, Inc.
