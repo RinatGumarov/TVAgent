@@ -20,8 +20,10 @@ Needs Chrome 111+ — the driver relies on `world: "MAIN"` content scripts.
 1. Open `chrome://extensions`
 2. Turn on **Developer mode** (top right)
 3. **Load unpacked** → select the `extension/` folder in this repo
+   (or the folder you unzipped from a [release](https://github.com/RinatGumarov/TVAgent/releases))
 4. Open <https://www.tradingview.com/chart/> — the panel appears on the right
-5. Click ⚙ in the panel, paste an [Anthropic API key](https://console.anthropic.com/settings/keys)
+5. Click ⚙ in the panel, paste an [Anthropic API key](https://console.anthropic.com/settings/keys),
+   or point it at a local model server such as Ollama
 
 **Log in to TradingView.** Anonymous sessions can't create most drawing tools —
 the panel warns you if it detects this.
@@ -127,6 +129,10 @@ standard, but they are the two things to try first.
   `search_indicators`.
 - **This API is internal and unversioned.** It can change without notice. The
   driver is the seam that absorbs that.
+- **Only local OpenAI-compatible endpoints work out of the box.** The manifest
+  grants `localhost` and `127.0.0.1` but no hosted third-party host, so pointing
+  the base URL at a remote provider fails until that host is added to
+  `host_permissions`.
 
 ---
 
@@ -150,3 +156,21 @@ window.__tvAgent.methods
 
 TVAgent analyzes charts and writes scripts. It cannot trade, and backtest results
 are not predictions.
+
+---
+
+## Privacy
+
+No backend, no analytics, no account. Settings and your API key live in
+`chrome.storage.local`; prompts go only to the model provider you configure. Full
+detail in [PRIVACY.md](PRIVACY.md).
+
+---
+
+## License
+
+[MIT](LICENSE).
+
+TVAgent is an independent project. It is not affiliated with, endorsed by, or
+sponsored by TradingView, Inc. "TradingView" is a trademark of its owner and is
+used here only to say what this extension works with.
