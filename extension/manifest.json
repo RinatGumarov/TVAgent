@@ -3,14 +3,22 @@
   "name": "TVAgent — AI Agent for TradingView",
   "version": "0.1.0",
   "description": "Claude-powered agent that reads and drives TradingView through its native semantic API.",
+  "homepage_url": "https://github.com/RinatGumarov/TVAgent",
 
   "permissions": ["storage"],
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
 
   "host_permissions": [
     "https://*.tradingview.com/*",
     "https://api.anthropic.com/*",
-    "http://localhost:11434/*",
-    "http://127.0.0.1:11434/*"
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
 
   "background": {
@@ -42,6 +50,12 @@
   ],
 
   "action": {
-    "default_title": "Toggle TVAgent panel"
+    "default_title": "Toggle TVAgent panel",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   }
 }
