@@ -38,7 +38,7 @@ The toolbar button toggles the panel. The left edge drags to resize.
 ┌─ Panel (content script, ISOLATED world) ──────────────┐
 │  chat UI · agent loop · tool dispatch · permissions   │
 └────────┬──────────────────────────┬───────────────────┘
-         │ chrome.runtime Port      │ window.postMessage
+         │ chrome.runtime Port      │ authenticated postMessage
          ▼                          ▼
 ┌─ Background worker ────┐  ┌─ Driver (MAIN world) ─────┐
 │ holds the API key      │  │ TradingViewDriver         │
@@ -46,16 +46,28 @@ The toolbar button toggles the panel. The left edge drags to resize.
 └────────────────────────┘  └───────────────────────────┘
 ```
 
-Three boundaries, each doing one job:
+Four boundaries, each doing one job:
 
 - **The API key never leaves the background worker.** Not the page, not the panel,
-  not TradingView.
+  not TradingView. The settings screen's key fields are closed shadow roots, so
+  the value is not in the panel's markup either.
 - **The model never gets arbitrary JS.** It calls named tools; the driver
-  dispatches only from a fixed handler table. There is no `execute_javascript`.
-- **The page bridge validates origin and method** on every message.
+  dispatches only from its own handler table, checked with `hasOwnProperty`, and
+  the agent refuses any name that is not in the tool list. There is no
+  `execute_javascript`.
+- **The page bridge is authenticated.** `window.postMessage` is shared with every
+  script on tradingview.com, so the two ends agree a secret once at
+  `document_start` and stamp every message with an HMAC over its id. A page
+  script can neither invoke a driver method nor answer one.
+- **A run is owned by one loop.** Stop, New chat and a second send all end the
+  run that was in flight, so two loops can never write into one conversation.
 
 | File | Role |
 |---|---|
+| `extension/src/shared/wire.js` | The bridge protocol and its handshake, loaded into both worlds. |
+| `extension/src/shared/models.js` | The Anthropic model catalog, and what each model's request may carry. |
+| `extension/src/shared/credentials.js` | Which provider a stored key and model belong to. |
+| `extension/src/shared/wait.js` | One poll helper, for everything that waits on the host. |
 | `extension/src/injected/driver.js` | MAIN world. The `TradingViewDriver` — every call into `window.TradingViewApi`. |
 | `extension/src/content/bridge.js` | postMessage RPC to the driver, with timeouts. |
 | `extension/src/content/tools.js` | Tool schemas the model sees, plus permission levels. |
@@ -89,14 +101,20 @@ Following the plan's §15 model:
 | 2 — persistent | **asks first** | `set_pine_code`, `add_pine_to_chart` |
 | 3 — financial | **not implemented** | — |
 
-Level 2 confirmations can be switched off in settings for demo runs. Level 3 does
-not exist: there is no order placement, no broker access, no code path to one.
+Level 2 confirmations can be switched off in settings for demo runs; that switch
+covers level 2 and nothing else. Level 3 does not exist: there is no order
+placement, no broker access, no code path to one, and a call at that level is
+refused rather than offered as something to allow. A name that is not in the
+tool list is not a privileged tool — it is answered as "no such tool" and never
+dispatched.
 
 ### Capability probe
 
 On load the panel probes the page and disables tools that aren't available —
 missing Pine API, no series data, logged-out session. A gap degrades one tool
-instead of breaking the extension.
+instead of breaking the extension. The driver pushes a fresh report on every
+symbol and timeframe change, so a tool that becomes available later comes back
+and the system prompt always names the chart the user is actually looking at.
 
 ---
 
@@ -142,13 +160,32 @@ standard, but they are the two things to try first.
 localStorage.setItem('tv-agent-debug', '1')
 ```
 
-Logs every driver call and its duration to the page console. The driver is also
-reachable manually:
+Then reload. This logs every driver call and its duration to the page console,
+and is also what exposes the manual handle — it is not present otherwise, since
+a global that calls straight into the handler table would bypass the bridge's
+authentication:
 
 ```javascript
 await window.__tvAgent.call('get_chart_context')
 window.__tvAgent.methods
 ```
+
+---
+
+## Tests
+
+Everything under `tests/` runs on plain node, with no dependencies to install.
+The extension sources are read from disk and evaluated under a fake DOM, a fake
+`chrome.*` and a fake window, so the tests run the shipped files rather than a
+copy made importable.
+
+```bash
+bash tools/test.sh
+```
+
+Two of them reach outside: `models-test.mjs` skips its last section unless a
+local Ollama is running, and `adapter-test.mjs` and `loop-probe.mjs` exist to be
+pointed at a live model by hand.
 
 ---
 

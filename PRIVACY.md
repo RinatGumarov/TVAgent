@@ -44,7 +44,9 @@ prompts, or your conversation to TradingView.
 
 The API key is held in the extension's background service worker and attached to
 provider requests there. It is never exposed to the TradingView page, and never
-sent anywhere except the provider endpoint you configured.
+sent anywhere except the provider endpoint you configured. The settings screen's
+key fields live in a closed shadow root, so no script on tradingview.com can
+read the value out of the panel's own markup either.
 
 ## What TVAgent does not do
 
