@@ -113,7 +113,12 @@
     });
 
     root.querySelector('#tva-new').addEventListener('click', () => {
+      // reset() ends a run in flight first (see Agent.reset), which comes back
+      // here through onDone and puts the composer out of its Stop state. Doing
+      // it in this order matters: clearing the list first would leave the
+      // cancelled run writing its last trace rows into the fresh chat.
       agent?.reset();
+      if (busy) endRun('ok');
       chat.clear();
       showScreen('chat');
       setEmpty(true);
@@ -390,7 +395,10 @@
     try {
       settings = window.TVAgentSettings.create(settingsEl, {
         onChange: ({ provider, model }) => {
-          modelChipEl.textContent = provider === 'anthropic' ? label(model) : model || 'Pick a model';
+          modelChipEl.textContent =
+            provider === 'anthropic'
+              ? window.TVAgentModels.chip(model)
+              : model || 'Pick a model';
         },
       });
 
@@ -433,6 +441,38 @@
     });
 
     agent = new window.TVAgentRuntime.Agent({ capabilities, handlers: handlers() });
+    watchChart();
+  }
+
+  /**
+   * The capability report is what the system prompt names and what the tool
+   * list is filtered by, and it used to be read once, at boot. After a symbol
+   * change the prompt still announced the old ticker, and a symbol whose bars
+   * had not loaded when the panel started kept get_series_data switched off
+   * for the rest of the session. The driver pushes a fresh report on every
+   * symbol and timeframe change; this merges it in place.
+   *
+   * In place, because the agent was handed this exact object and reads it on
+   * every turn. Replacing it would leave the agent holding the boot-time copy
+   * and would look, from here, like it had worked.
+   */
+  function watchChart() {
+    window.TVAgentBridge.on('chart-changed', (report) => {
+      if (!report || !capabilities) return;
+      // `price` is absent from the report, not null, whenever the new symbol's
+      // bars have not loaded yet (see probe()). A plain merge would leave the
+      // previous symbol's price standing next to the new ticker, so the keys
+      // the report owns but may not carry are cleared first.
+      delete capabilities.price;
+      Object.assign(capabilities, report);
+      setContext();
+      if (!busy) {
+        setStatus(
+          capabilities.loggedIn ? 'ok' : 'warn',
+          capabilities.loggedIn ? 'connected' : 'logged out'
+        );
+      }
+    });
   }
 
   /** No #tva-root exists yet at this point — see the comment at the call site. */
@@ -446,13 +486,6 @@
       'font:12px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;z-index:2147483647;';
     document.documentElement.appendChild(el);
   }
-
-  const label = (model) =>
-    ({
-      'claude-opus-5': 'Claude Opus',
-      'claude-sonnet-5': 'Claude Sonnet',
-      'claude-haiku-4-5': 'Claude Haiku',
-    }[model] || model);
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type === 'toggle-panel') window.TVAgentMount.toggle();

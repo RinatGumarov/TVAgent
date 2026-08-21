@@ -12,14 +12,21 @@
  * only ever sees Anthropic blocks and does not know which provider ran.
  */
 
+// The model catalog and the legacy credential split are shared with the panel:
+// both ends have to agree about which model can be called and whose key is
+// whose, and they used to say it in two dialects that drifted apart.
+importScripts('/src/shared/models.js', '/src/shared/credentials.js');
+
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULTS = {
   provider: 'anthropic',
-  model: 'claude-opus-5',
+  model: TVAgentModels.DEFAULT_MODEL,
   baseUrl: 'http://localhost:11434/v1',
-  maxTokens: 32000,
   effort: 'high',
 };
+
+/** Not configurable; the panel never wrote it and nothing ever read a stored one. */
+const MAX_TOKENS = 32000;
 
 /**
  * Resolves the active provider's own key and model.
@@ -30,34 +37,25 @@ const DEFAULTS = {
  */
 async function settings() {
   const s = await chrome.storage.local.get([
-    'apiKey', 'model', 'effort', 'maxTokens', 'provider', 'baseUrl',
-    'openaiApiKey', 'openaiModel',
+    'apiKey', 'model', 'effort', 'provider', 'baseUrl', 'openaiApiKey', 'openaiModel',
   ]);
   const provider = s.provider || DEFAULTS.provider;
   const common = {
     provider,
     baseUrl: (s.baseUrl || DEFAULTS.baseUrl).replace(/\/+$/, ''),
     effort: s.effort || DEFAULTS.effort,
-    maxTokens: s.maxTokens || DEFAULTS.maxTokens,
+    maxTokens: MAX_TOKENS,
   };
+
+  // Storage may still be in the old shape, where both providers shared one
+  // key/model pair. Read it through the same rules the panel writes with; the
+  // panel rewrites the slots for good the next time it loads.
+  const slots = TVAgentCredentials.split(s);
 
   if (provider === 'anthropic') {
-    return { ...common, apiKey: s.apiKey || '', model: s.model || DEFAULTS.model };
+    return { ...common, apiKey: slots.apiKey, model: slots.model || DEFAULTS.model };
   }
-
-  // Older builds shared one key/model slot between both providers. If nothing
-  // has been written under the split keys yet, the shared pair belongs to the
-  // provider that was stored. The panel rewrites them into place on load.
-  const legacy = s.openaiApiKey === undefined && s.openaiModel === undefined;
-  const shared = s.apiKey || '';
-  return {
-    ...common,
-    // A key typed into the provider's own field is the user's to send wherever
-    // they point it. A key inherited from the shared slot may be an Anthropic
-    // key that was never meant to leave api.anthropic.com, so it stays behind.
-    apiKey: legacy ? (shared.startsWith('sk-ant-') ? '' : shared) : (s.openaiApiKey || ''),
-    model: (legacy ? s.model : s.openaiModel) || '',
-  };
+  return { ...common, apiKey: slots.openaiApiKey, model: slots.openaiModel };
 }
 
 /** What has to be in place before a turn can go out, in the user's terms. */
@@ -94,19 +92,31 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'tvagent-llm') return;
 
   let aborter = null;
-  port.onDisconnect.addListener(() => aborter?.abort());
+  let closed = false;
+  port.onDisconnect.addListener(() => {
+    closed = true;
+    aborter?.abort();
+  });
 
   port.onMessage.addListener(async (msg) => {
     if (msg.type !== 'run') return;
 
+    // Allocated before the first await, not after it. Reading settings takes a
+    // trip through chrome.storage, and a panel that disconnected during it
+    // found `aborter` still null: nothing was aborted, and the turn streamed
+    // to completion — billed in full — into a port with nobody on the far end.
+    aborter = new AbortController();
+    if (closed) return;
+
     const cfg = await settings();
+    if (closed) return;
+
     const problem = configError(cfg);
     if (problem) {
       port.postMessage({ type: 'error', error: problem });
       return;
     }
 
-    aborter = new AbortController();
     try {
       const message = cfg.provider === 'anthropic'
         ? await streamAnthropic(cfg, msg, port, aborter.signal)
@@ -169,10 +179,11 @@ async function streamAnthropic(cfg, req, port, signal) {
     system: req.system,
     messages: req.messages,
     tools: req.tools,
-    // Thinking is on by default on Opus 5; ask for the summary so the panel
-    // can show reasoning instead of a silent pause.
-    thinking: { type: 'adaptive', display: 'summarized' },
-    output_config: { effort: cfg.effort },
+    // Adaptive thinking and output_config.effort went out on every request
+    // regardless of model, and Haiku 4.5 accepts neither — so every turn on a
+    // model the settings screen openly offered came back 400. The catalog says
+    // what each one takes.
+    ...TVAgentModels.reasoning(cfg.model, { effort: cfg.effort, maxTokens: cfg.maxTokens }),
   };
 
   const response = await fetch(ANTHROPIC_URL, {
@@ -256,7 +267,25 @@ async function parseAnthropicStream(response, port) {
     }
   }
 
-  return { content: blocks.filter(Boolean), stop_reason: stopReason };
+  // Every block here is echoed back verbatim on the next request, and the API
+  // refuses a text block whose text is empty — which is exactly what a turn
+  // that opens with text and then goes straight to a tool call leaves behind.
+  // One of those poisons the conversation for good: every later turn carries
+  // it, and every later turn is a 400.
+  return { content: blocks.filter(nonEmpty), stop_reason: stopReason };
+}
+
+function nonEmpty(block) {
+  if (!block) return false;
+  if (block.type === 'text') return !!(block.text && block.text.trim());
+  // A thinking block is dropped only when it says nothing at all. The
+  // signature is the half the API validates when the turn is echoed back, so a
+  // summary that came back blank is still a block that has to survive the trip
+  // — dropping it fails the *next* request rather than this one.
+  if (block.type === 'thinking') {
+    return !!((block.thinking && block.thinking.trim()) || block.signature);
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -425,14 +454,23 @@ async function streamOpenAI(cfg, req, port, signal) {
 /**
  * Reassembles an OpenAI-shaped stream into Anthropic content blocks.
  *
- * Tool calls arrive as index-keyed fragments: the id and name usually land in
- * the first delta for that index and the arguments dribble in after, so each
- * index is accumulated separately and parsed once the stream ends.
+ * Tool calls arrive as fragments: the id and name usually land in the first
+ * delta for a call and the arguments dribble in after, so each call is
+ * accumulated separately and parsed once the stream ends.
+ *
+ * `index` is what says which call a fragment belongs to — but it is optional,
+ * and several compatibility layers leave it out. The key used to fall back to
+ * `calls.size`, which changes as soon as a call is added: a two-call turn had
+ * its second call's arguments appended to a third entry that never existed
+ * before, and both calls reached the model with truncated JSON. Without an
+ * index a fragment belongs to the call the id names, or — an argument
+ * fragment carries neither — to the call still being streamed.
  */
 async function parseOpenAIStream(response, port) {
   let text = '';
   let thinking = '';
-  const calls = new Map(); // choice index → { id, name, args }
+  const calls = new Map(); // call key → { id, name, args }
+  let openCall = null; // the key the last fragment belonged to
   let stopReason = null;
   let startedText = false;
   let startedThinking = false;
@@ -461,15 +499,26 @@ async function parseOpenAIStream(response, port) {
     }
 
     for (const tc of delta.tool_calls || []) {
-      const key = tc.index ?? calls.size;
-      const call = calls.get(key) || { id: '', name: '', args: '' };
+      const key =
+        tc.index != null ? `#${tc.index}`
+        : tc.id ? `id:${tc.id}`
+        : openCall ?? '#0';
+      openCall = key;
+
+      const known = calls.get(key);
+      const call = known || { id: '', name: '', args: '' };
       if (tc.id) call.id = tc.id;
-      if (tc.function?.name) {
-        call.name = tc.function.name;
-        port.postMessage({ type: 'block_start', blockType: 'tool_use', name: call.name });
-      }
+      // Appended, because some providers stream the name in pieces — but only
+      // when the fragment is not simply the name again. Others repeat it whole
+      // on every fragment, and concatenating those gave "get_chartget_chart",
+      // a name no tool answers to and a turn that lost every call it made.
+      const part = tc.function?.name;
+      if (part && call.name !== part) call.name += part;
       if (tc.function?.arguments) call.args += tc.function.arguments;
       calls.set(key, call);
+
+      // Once per call, not once per fragment that happens to carry a name.
+      if (!known) port.postMessage({ type: 'block_start', blockType: 'tool_use', name: call.name });
     }
 
     if (choice.finish_reason) stopReason = STOP_REASONS[choice.finish_reason] || choice.finish_reason;
@@ -479,7 +528,8 @@ async function parseOpenAIStream(response, port) {
   if (thinking) content.push({ type: 'thinking', thinking });
   if (text) content.push({ type: 'text', text });
 
-  for (const [key, call] of calls) {
+  let synthesized = 0;
+  for (const call of calls.values()) {
     let input = {};
     try {
       input = call.args ? JSON.parse(call.args) : {};
@@ -492,7 +542,7 @@ async function parseOpenAIStream(response, port) {
       type: 'tool_use',
       // Some providers omit ids on single-call turns, but the agent loop keys
       // tool results by id, so synthesize one when it is missing.
-      id: call.id || `call_${key}`,
+      id: call.id || `call_${synthesized++}`,
       name: call.name,
       input,
     });

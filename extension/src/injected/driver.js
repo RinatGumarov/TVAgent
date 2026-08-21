@@ -4,19 +4,40 @@
  * Runs in the MAIN world so it can reach `window.TradingViewApi`, the semantic
  * API TradingView exposes on chart pages (see docs/internal-api-map.md).
  *
- * Talks to the extension's content script over window.postMessage. Only the
- * method names in HANDLERS can be invoked — the LLM never reaches arbitrary JS.
+ * Talks to the extension's content script over window.postMessage — a channel
+ * every other script on the page shares, so requests are authenticated with
+ * the secret from the handshake in shared/wire.js rather than trusted for
+ * looking right. Only the own methods of HANDLERS can be invoked, so the model
+ * never reaches arbitrary JS and never reaches an inherited one either.
  */
 (() => {
   'use strict';
 
-  const REQ = 'tva-req';
-  const RES = 'tva-res';
-  const EVT = 'tva-evt';
+  const wire = window.TVAgentWire;
+  const { poll } = window.TVAgentWait;
   const ORIGIN = window.location.origin;
 
+  /**
+   * Minted here, handed to the first asker and never put on the wire again:
+   * from then on messages carry a stamp derived from it. The first asker is
+   * the extension's content script, because both are injected before the page
+   * parser has produced a single <script> element — see wire.js for what that
+   * assumption is worth.
+   */
+  const SECRET = wire.id();
+  let claimant = null;
+  let key = null;
+  const keyReady = wire.key(SECRET).then((k) => (key = k));
+
+  const debugOn = () => {
+    try {
+      return localStorage.getItem('tv-agent-debug') === '1';
+    } catch (_) {
+      return false; // storage can be blocked outright
+    }
+  };
   const log = (...a) => {
-    if (localStorage.getItem('tv-agent-debug') === '1') console.log('[TVAgent/page]', ...a);
+    if (debugOn()) console.log('[TVAgent/page]', ...a);
   };
 
   // ---------------------------------------------------------------- helpers
@@ -40,22 +61,25 @@
     return b;
   }
 
-  /** [time, open, high, low, close, volume] */
-  function barAt(index) {
-    const v = bars().valueAt(index);
-    if (!v) throw new Error(`No bar at index ${index}.`);
-    return v;
-  }
-
   /**
    * Drawing points must land on a loaded bar — an arbitrary timestamp makes
    * createShape throw a bare "Value is null" from deep inside the converter.
+   *
+   * NaN is refused rather than snapped. Every caller reaches here through
+   * `Number(input.time)`, so a model that sends a date string, a null or
+   * nothing at all arrives as NaN — and NaN fails all three comparisons below,
+   * which used to walk the whole window, find no bar closer than Infinity and
+   * quietly draw on the last one. Silently drawing in the wrong place is worse
+   * than saying the time was unusable, and every schema that reaches here marks
+   * `time` required, so there is no missing-time default to fall back to.
    */
   function snapToBar(time) {
     const b = bars();
     const first = b.valueAt(b.firstIndex())[0];
     const last = b.valueAt(b.lastIndex())[0];
-    if (time == null) return last;
+    if (Number.isNaN(time)) {
+      throw new Error('time must be a unix timestamp in seconds — got something that is not a number.');
+    }
     if (time <= first) return first;
     if (time >= last) return last;
     let best = last;
@@ -79,31 +103,27 @@
     }));
   }
 
+  /**
+   * The display name createStudy wants, from whatever the model called it.
+   *
+   * The shorthand a model produces — "EMA", "RSI", "MACD" — is the catalog's
+   * own `shortDescription`, so the catalog answers for itself. This used to be
+   * a hand-written alias table beside it, which meant every indicator the
+   * table did not list was shorthand the driver could not resolve, and every
+   * name TradingView renamed was an entry that quietly went stale.
+   */
   function findStudyName(query) {
     const all = studyCatalog();
     const q = String(query).trim().toLowerCase();
-    const exact = all.find((s) => (s.name || '').toLowerCase() === q);
+    const name = (s) => (s.name || '').toLowerCase();
+    const short = (s) => (s.short || '').toLowerCase();
+
+    const exact = all.find((s) => name(s) === q) || all.find((s) => short(s) === q);
     if (exact) return exact.name;
-    // Common shorthand the model is likely to produce.
-    const aliases = {
-      'ema': 'Moving Average Exponential',
-      'sma': 'Moving Average',
-      'ma': 'Moving Average',
-      'wma': 'Moving Average Weighted',
-      'hma': 'Hull Moving Average',
-      'vwap': 'VWAP',
-      'bb': 'Bollinger Bands',
-      'rsi': 'Relative Strength Index',
-      'macd': 'MACD',
-      'atr': 'Average True Range',
-      'stoch': 'Stochastic',
-    };
-    if (aliases[q]) {
-      const hit = all.find((s) => (s.name || '').toLowerCase() === aliases[q].toLowerCase());
-      if (hit) return hit.name;
-    }
-    const partial = all.find((s) => (s.name || '').toLowerCase().includes(q));
+
+    const partial = all.find((s) => name(s).includes(q)) || all.find((s) => short(s).includes(q));
     if (partial) return partial.name;
+
     throw new Error(
       `Unknown indicator "${query}". Call search_indicators first to get an exact name.`
     );
@@ -128,9 +148,20 @@
   const PAGE_ID = 'tva-widgetbar-page';
   const PAGE_NAME = 'tva_agent';
 
-  /** Unsolicited push to the content script. Requests still use RES. */
+  /**
+   * Unsolicited push to the content script. Requests still answer with RES.
+   * Stamped like everything else, so a page script cannot fabricate one —
+   * which is why this is asynchronous even though its callers are not, and
+   * why it waits for the key rather than dropping an event that happens to
+   * fire before the handshake has finished.
+   */
   function emit(type, payload) {
-    window.postMessage({ source: EVT, type, payload }, ORIGIN);
+    const id = wire.id();
+    keyReady
+      .then(() => wire.stamp(key, id, 'evt', wire.body(type, payload)))
+      .then((stamp) => {
+        window.postMessage({ source: wire.EVT, id, stamp, type, payload }, ORIGIN);
+      });
   }
 
   const wb = {
@@ -140,8 +171,8 @@
     observer: null, // MutationObserver over the right toolbar
     prevPage: null, // the user's tab, to put back on deactivate
     prevMinimized: false,
-    // The layout we are subscribed to, not a flag: refreshFromTVSettings()
-    // swaps the whole layout object (widget-bar.ts:379-407).
+    // The layout we are subscribed to, not a flag: TradingView swaps the
+    // whole layout object when it refreshes the bar from account settings.
     watching: null,
     unloadArmed: false,
     // Must start undefined, not false — the first sync may legitimately be false.
@@ -168,24 +199,23 @@
   /**
    * True once everything a mount needs actually exists: `window.widgetbar`,
    * its `.layout`, and the right-toolbar DOM node `injectButton` clones from.
-   * widget-bar.ts's constructor sets `this.layout` synchronously, so the
-   * first two always arrive together — but the toolbar itself is a separate
-   * React render and can still lag behind by a tick, so it gets its own check
-   * rather than being assumed from the other two.
+   * The bar sets its layout synchronously as it is constructed, so the first
+   * two always arrive together — but the toolbar itself is a separate React
+   * render and can still lag behind by a tick, so it gets its own check rather
+   * than being assumed from the other two.
    */
   function widgetBarPresent() {
     const bar = window.widgetbar;
     return !!(bar && bar.layout && document.querySelector('[data-name="right-toolbar"]'));
   }
 
-  // widgetbar-creator.ts only calls createWidgetBar() once window.is_authenticated
-  // is true (either at page load or on a live login), so that flag is what
-  // separates "the bar is on its way" from "there will never be one" — measured
-  // at 1084ms, well ahead of the bar itself (2735-3082ms). 40 attempts at
-  // 200ms apart is an 8s budget: about 2.6x the slowest of three measured
-  // reloads, comfortably inside bridge.js's 45s call timeout, and fine-grained
-  // enough (200ms) that the common case doesn't overshoot the real readiness
-  // time by much.
+  // TradingView only builds a widget bar once `window.is_authenticated` is
+  // true (at page load or on a live login), so that flag is what separates
+  // "the bar is on its way" from "there will never be one" — it was measured
+  // at 1084ms, well ahead of the bar itself (2735-3082ms). 40 waits at 200ms
+  // apart is an 8s budget: about 2.6x the slowest of three measured reloads,
+  // comfortably inside bridge.js's 45s call timeout, and fine-grained enough
+  // that the common case does not overshoot real readiness by much.
   const WIDGETBAR_WAIT_ATTEMPTS = 40;
   const WIDGETBAR_POLL_INTERVAL_MS = 200;
 
@@ -200,13 +230,15 @@
     if (!window.is_authenticated) {
       throw new Error('TradingView widget bar is not on this page (anonymous session?).');
     }
-    for (let i = 0; i < WIDGETBAR_WAIT_ATTEMPTS; i++) {
-      await new Promise((r) => setTimeout(r, WIDGETBAR_POLL_INTERVAL_MS));
-      if (widgetBarPresent()) return;
+    const present = await poll(widgetBarPresent, {
+      attempts: WIDGETBAR_WAIT_ATTEMPTS,
+      intervalMs: WIDGETBAR_POLL_INTERVAL_MS,
+    });
+    if (!present) {
+      throw new Error(
+        `Timed out waiting for the TradingView widget bar to appear (waited ${WIDGETBAR_WAIT_ATTEMPTS * WIDGETBAR_POLL_INTERVAL_MS}ms).`
+      );
     }
-    throw new Error(
-      `Timed out waiting for the TradingView widget bar to appear (waited ${WIDGETBAR_WAIT_ATTEMPTS * WIDGETBAR_POLL_INTERVAL_MS}ms).`
-    );
   }
 
   function ourIndex() {
@@ -224,10 +256,9 @@
    * Keeps our tab button and the content script in step with whatever the user
    * does to the widget bar, including opening one of TradingView's own tabs.
    *
-   * Wrapped in try/catch: TradingView's WatchedValue.setValue already guards
-   * each listener with try/catch + logError (packages/common/src/watched-value.ts),
-   * so a throw here would not break the host's notification loop — but it would
-   * still desync our button silently and spam their telemetry.
+   * Wrapped in try/catch: TradingView's own observable already guards each
+   * listener, so a throw here would not break the host's notification loop —
+   * but it would still desync our button silently and spam their telemetry.
    */
   function syncActive() {
     try {
@@ -245,10 +276,9 @@
   }
 
   /**
-   * Subscriptions follow the layout, because the layout is replaceable:
-   * onLoginStateChange -> refreshFromTVSettings() destroys it and installs a
-   * fresh WidgetBarLayout (widget-bar.ts:362-407). That fires when the user
-   * logs in without reloading — the ordinary way to get a widget bar at all,
+   * Subscriptions follow the layout, because the layout is replaceable: a
+   * login state change makes TradingView destroy it and install a fresh one.
+   * That fires when the user logs in without reloading — the ordinary way to get a widget bar at all,
    * since an anonymous chart has none. Latching on a boolean would leave
    * syncActive bound to the dead layout's watched values for good: the button
    * would stop tracking and the panel would stop hearing widgetbar-active,
@@ -259,8 +289,7 @@
     const L = layout();
     if (wb.watching === L) return;
     if (wb.watching) {
-      // WatchedValue.unsubscribe(cb) drops every matching listener
-      // (packages/common/src/watched-value.ts).
+      // unsubscribe(cb) drops every matching listener.
       wb.watching.activePageIndex.unsubscribe(syncActive);
       wb.watching.isMinimized.unsubscribe(syncActive);
     }
@@ -270,9 +299,8 @@
   }
 
   /**
-   * The members of TradingView's WatchedValue that their tab button components
-   * actually use (packages/common/src/watched-value.ts): value, setValue,
-   * subscribe(cb, options), unsubscribe(cb).
+   * The members of TradingView's observable that their tab button components
+   * actually use: value, setValue, subscribe(cb, options), unsubscribe(cb).
    */
   function watchedValue(initial) {
     let current = initial;
@@ -299,30 +327,28 @@
   }
 
   /**
-   * `layout.createPage()` leaves `page.tab` undefined — only demarshal() ever
-   * builds one, through createTabButtonViewModel (page.ts:477-491, called from
-   * page.ts:519). The host does not treat the field as optional:
-   * page.onActiveStateChange does `ensure(this.tab)` (page.ts:93), so a page
-   * without one throws the moment it is switched *to* or *away from* — and a
-   * switch away happens on the user's next native tab click, which would leave
-   * their whole widget bar wedged until reload. RightToolbar's constructor also
-   * reads `tab.TabButtonComponent` for every page (right-toolbar.tsx:102-103),
-   * so a remount would fail to construct at all.
+   * `layout.createPage()` leaves `page.tab` undefined — only the path that
+   * restores a saved bar ever builds one. The host does not treat the field as
+   * optional: switching a page on or off asserts that its tab exists, so a
+   * page without one throws the moment it is switched *to* or *away from* —
+   * and a switch away happens on the user's next native tab click, which would
+   * leave their whole widget bar wedged until reload. The right toolbar's
+   * constructor also reads `tab.TabButtonComponent` for every page, so a
+   * remount would fail to construct at all.
    *
-   * We build the view model ourselves rather than calling the host's
-   * createTabButtonViewModel(): that one's onClick closes over
-   * layout.onTabClick(this), which saves to the account's settings.
+   * We build the view model ourselves rather than calling the host's factory:
+   * that one's onClick closes over the layout's own tab-click handler, which
+   * saves to the account's settings.
    *
-   * `visible` is false on purpose. Once the page has a tab, RightToolbar
-   * registers it in `_pages` and _renderPages() would draw a second button next
-   * to the one we inject (right-toolbar.tsx:250-267) — and dropping `page.name`
-   * does not help, because `undefined in obj` stringifies the key and finds the
-   * entry the constructor stored under "undefined". bindTabButton's provider
-   * returns null for a model that is not visible (bind-tab-button.tsx:53-57),
-   * which suppresses the button at the only place that can. `onClick` holds
-   * undefined and `isDisabled` true for the same reason a belt gets braces:
-   * even if one were rendered it would come out inert and disabled
-   * (tab-button.tsx:45-49) and could not reach onTabClick.
+   * `visible` is false on purpose. Once the page has a tab, the toolbar
+   * registers it and would draw a second button next to the one we inject —
+   * and dropping `page.name` does not help, because `undefined in obj`
+   * stringifies the key and finds the entry the toolbar stored under
+   * "undefined". Their tab-button binding renders nothing for a model that is
+   * not visible, which suppresses the button at the only place that can.
+   * `onClick` holds undefined and `isDisabled` true for the same reason a belt
+   * gets braces: even if one were rendered it would come out inert and
+   * disabled, and could not reach the host's tab-click handler.
    */
   function inertTab(hint) {
     const active = watchedValue(false);
@@ -342,7 +368,7 @@
       hint: watchedValue(hint || 'TVAgent'),
       onClick: watchedValue(undefined),
       visible: watchedValue(false),
-      // The three methods page.ts calls on `tab` (page.ts:93, 432, 438, 593, 599).
+      // The three methods a page calls on its `tab`.
       onActiveStateChange: (state) => active.setValue(!!state),
       updateNotifications: (value) => count.setValue(Number(value) || 0),
       updateNotificationCounterAriaLabel: (value) => ariaLabel.setValue(String(value || '')),
@@ -352,11 +378,10 @@
   /** Everything the host needs true of our page before it joins the rotation. */
   function preparePage(page, title) {
     page.tab = inertTab(title);
-    // `name` is a plain mutable field (page.ts:41) — nothing refuses the write.
-    // It keeps RightToolbar from logging "Page does not provide required field
-    // name" on every construction (right-toolbar.tsx:96-100) and gives React a
-    // stable key. It costs a wrong layout.activeName, which widgetbar_activate
-    // puts back.
+    // `name` is a plain mutable field — nothing refuses the write. It keeps
+    // the toolbar from logging "Page does not provide required field name" on
+    // every construction and gives React a stable key. It costs a wrong
+    // layout.activeName, which widgetbar_activate puts back.
     page.name = PAGE_NAME;
     return page;
   }
@@ -367,13 +392,13 @@
    * is ours, which is also why no hash has to be derived for the active state.
    *
    * Which button gets cloned matters, and one selector settles both traps.
-   * `aria-pressed` is written only by TabButton (tab-button.tsx:54), so asking
-   * for it skips the CloseButton that takes first place in DOM order when
-   * `widgetBar.adaptive && isFullscreen` (right-toolbar.tsx:179-181). Asking
-   * for "false" skips a tab that is currently active: ToolWidgetButton puts the
-   * active hash on the <button> itself (tool-widget-button.tsx:74-96), and on a
-   * default chart the first tab in DOM order is the watchlist, which is
-   * activeIndex 0 — cloning it would render our tab permanently on.
+   * `aria-pressed` is written only by their tab buttons, so asking for it
+   * skips the close button that takes first place in DOM order when the bar is
+   * adaptive and the chart is fullscreen. Asking for "false" skips a tab that
+   * is currently active: the active state is a hashed class on the <button>
+   * itself, and on a default chart the first tab in DOM order is the
+   * watchlist, which is activeIndex 0 — cloning it would render our tab
+   * permanently on.
    */
   function injectButton(label, title) {
     const toolbar = document.querySelector('[data-name="right-toolbar"]');
@@ -390,14 +415,13 @@
     btn.setAttribute('data-tooltip', title);
     btn.setAttribute('aria-pressed', 'false');
     // The toolbar keeps exactly one tab stop. Every TabButton renders with
-    // tabIndex -1 until roving focus promotes it (use-roving-tabindex-element.ts),
-    // and that promotion is a CustomEvent only that hook listens for
-    // (roving-tabindex.ts), so nothing can ever demote a foreign button. A
-    // tabindex of 0 here would not merely add a second stop: our button would
-    // be the only hit in queryTabbableElements, and the toolbar's initialiser
-    // only promotes one of its own when that list is empty (toolbar.tsx:33-41),
-    // so the host's buttons would stay unreachable by Tab. Arrow keys still
-    // reach us — queryFocusableElements matches a plain button.
+    // tabIndex -1 until TradingView's roving-focus helper promotes it, and
+    // that promotion is a CustomEvent only their own hook listens for, so
+    // nothing can ever demote a foreign button. A tabindex of 0 here would not
+    // merely add a second stop: our button would be the only tabbable element
+    // the toolbar can find, and its initialiser only promotes one of its own
+    // when that list is empty — so the host's buttons would stay unreachable
+    // by Tab. Arrow keys still reach us: those match any focusable button.
     btn.setAttribute('tabindex', '-1');
     btn.classList.add('tva-tab');
 
@@ -424,10 +448,9 @@
 
   /**
    * React owns this subtree and we are a foreign child inside it, so any
-   * re-render of the tab list can drop us. RightToolbar force-updates when a
-   * tab's visibility, disabled or active state changes
-   * (right-toolbar.tsx:226-239), and re-renders on fullscreen transitions,
-   * which add and remove the CloseButton (right-toolbar.tsx:179-181).
+   * re-render of the tab list can drop us. The toolbar force-updates when a
+   * tab's visibility, disabled or active state changes, and re-renders on
+   * fullscreen transitions, which add and remove the close button.
    * syncActive() rides along because a re-render is a cheap hint that the bar's
    * state may have moved; it de-dupes itself.
    */
@@ -531,8 +554,8 @@
     await waitForWidgetBar();
 
     const L = layout();
-    // Pre-flight only: createPage() appends to the layout's own container
-    // (layout.ts:391), not to whatever this query happens to find.
+    // Pre-flight only: createPage() appends to the layout's own container,
+    // not to whatever this query happens to find.
     if (!document.querySelector('.widgetbar-pagescontent')) {
       throw new Error('Widget bar page container not found.');
     }
@@ -557,7 +580,7 @@
     } catch (e) {
       // createPage() has already mutated layout.pages and the DOM, and
       // injectButton fails on real conditions — the hide_right_toolbar_tabs
-      // featureset renders no toolbar at all (right-toolbar-renderer.ts:11-24).
+      // featureset renders no toolbar at all.
       // The caller falls back to its own overlay, so leave nothing behind.
       teardown();
       throw e;
@@ -583,14 +606,13 @@
       wb.prevMinimized = !!L.isMinimized.value();
     }
     L.switchPage(index);
-    // switchPage has just set layout.activeName to ours (layout.ts:301), and
-    // that string is persisted by the next saveToTVSettings() — a native tab
-    // click (layout.ts:364-366), a widget divider drag (page.ts:297-299) or a
-    // drag of the bar's own edge (layout.ts:703-707), which is exactly what a
-    // user does to resize our panel. On the next load demarshal finds no page
-    // by that name and resets to index 0 (layout.ts:598-600), silently losing
-    // the tab the user had open. Point it back at theirs: activeName is read
-    // only by demarshal and marshal, never at runtime.
+    // switchPage has just set layout.activeName to ours, and that string is
+    // persisted by the next save to account settings — a native tab click, a
+    // widget divider drag or a drag of the bar's own edge, which is exactly
+    // what a user does to resize our panel. On the next load TradingView finds
+    // no page by that name and resets to index 0, silently losing the tab the
+    // user had open. Point it back at theirs: activeName is read only when the
+    // bar is saved or restored, never at runtime.
     L.activeName = (wb.prevPage && wb.prevPage.name) || '';
     L.setMinimizedState(false);
     return { ok: true };
@@ -611,6 +633,75 @@
 
   function wbState() {
     return { active: isActive(), minimized: !!layout().isMinimized.value() };
+  }
+
+  // ------------------------------------------------------------ chart watch
+  //
+  // The panel's capability report is what the system prompt and the offered
+  // tool list are built from, and it used to be read exactly once, at load.
+  // A symbol switch then left the prompt naming the old ticker, and a switch
+  // onto a symbol whose bars had not loaded at boot left get_series_data
+  // turned off for the rest of the session. TradingView already tells us when
+  // either changes, so it is pushed instead.
+
+  // One symbol switch fires both events, and the chart answers again only
+  // after it has reloaded; this is long enough to swallow the pair.
+  const CHART_SETTLE_MS = 150;
+  const CHART_READY_ATTEMPTS = 12;
+  const CHART_READY_INTERVAL_MS = 500;
+
+  let watchedChart = null;
+  let announceTimer = null;
+  // The debounce holds back the *timer*, not a poll already running: a poll can
+  // be six seconds long, and every switch made while one is in flight used to
+  // start another beside it — five symbols in a row meant five loops probing a
+  // reloading chart every 500ms. A newer poll retires the older one instead.
+  let announceGeneration = 0;
+
+  function announceChart() {
+    clearTimeout(announceTimer);
+    announceTimer = setTimeout(async () => {
+      const mine = ++announceGeneration;
+      const current = () => mine === announceGeneration;
+      // The chart reports the new symbol before it can answer for it, so wait
+      // for a report worth acting on rather than pushing a half-built one.
+      const ready = await poll(async () => {
+        if (!current()) return null;
+        const report = await HANDLERS.probe();
+        return report.ready ? report : null;
+      }, { attempts: CHART_READY_ATTEMPTS, intervalMs: CHART_READY_INTERVAL_MS });
+      if (!current()) return;
+      emit('chart-changed', ready || (await HANDLERS.probe()));
+    }, CHART_SETTLE_MS);
+  }
+
+  /**
+   * Subscribes to the active chart's own change events, once per chart object.
+   * Everything here is optional as far as we are concerned: an older or
+   * different build that does not expose these leaves the panel exactly where
+   * it was before, reading capabilities at boot and no more.
+   */
+  function watchChart() {
+    let c;
+    try {
+      c = chart();
+    } catch (_) {
+      return; // no chart yet; probe() tries again next time
+    }
+    if (watchedChart === c) return;
+
+    let subscribed = false;
+    for (const name of ['onSymbolChanged', 'onIntervalChanged']) {
+      try {
+        const subscription = typeof c[name] === 'function' ? c[name]() : null;
+        if (!subscription || typeof subscription.subscribe !== 'function') continue;
+        subscription.subscribe(null, announceChart);
+        subscribed = true;
+      } catch (e) {
+        log(`could not subscribe to ${name}`, e);
+      }
+    }
+    if (subscribed) watchedChart = c;
   }
 
   // ---------------------------------------------------------------- handlers
@@ -652,6 +743,7 @@
       try {
         const c = chart();
         report.chart = true;
+        watchChart();
         // The chart object exists long before it can answer: while TradingView
         // is still loading, both of these throw a bare "Value is null" from
         // deep inside it. That is why the caller waits on `ready`, not `chart`.
@@ -883,13 +975,11 @@
       const before = new Set(c.getAllStudies().map((s) => s.id));
       await api().pineEditorTestApi().addScriptOnChart();
 
-      // Compilation + attach is async; poll for the new study to appear.
-      let added = null;
-      for (let i = 0; i < 20; i++) {
-        await new Promise((r) => setTimeout(r, 500));
-        added = c.getAllStudies().find((s) => !before.has(s.id));
-        if (added) break;
-      }
+      // Compilation + attach is async; wait for the new study to appear.
+      const added = await poll(() => c.getAllStudies().find((s) => !before.has(s.id)), {
+        attempts: 20,
+        intervalMs: 500,
+      });
       if (!added) {
         return { ok: false, error: 'Script did not attach — it most likely failed to compile. Check the Pine editor console.' };
       }
@@ -920,13 +1010,14 @@
       if (!studyId) throw new Error('No strategy on the chart. Add a Pine strategy first.');
 
       const study = c.getStudyById(studyId).study();
-      let data = null;
-      for (let i = 0; i < 15; i++) {
-        data = study.reportData && study.reportData();
-        if (data && data.performance) break;
-        await new Promise((r) => setTimeout(r, 700));
-      }
-      if (!data || !data.performance) throw new Error('Strategy report is not populated yet.');
+      const data = await poll(
+        () => {
+          const report = study.reportData && study.reportData();
+          return report && report.performance ? report : null;
+        },
+        { attempts: 15, intervalMs: 700 }
+      );
+      if (!data) throw new Error('Strategy report is not populated yet.');
 
       const p = data.performance;
       return {
@@ -961,16 +1052,82 @@
 
   // ---------------------------------------------------------------- bridge
 
+  /**
+   * Request ids already answered. Bounded, because this outlives the page: the
+   * window is what a replay has to land inside, and a caller that is one
+   * request deep is not coming back for one it sent thousands ago.
+   */
+  const answered = new Set();
+  const ANSWERED_LIMIT = 5000;
+
+  function claimId(id) {
+    if (answered.has(id)) return false;
+    if (answered.size >= ANSWERED_LIMIT) {
+      // Oldest first — Set iterates in insertion order.
+      answered.delete(answered.values().next().value);
+    }
+    answered.add(id);
+    return true;
+  }
+
+  /**
+   * The one method lookup. `hasOwnProperty` rather than a plain index: every
+   * object inherits `constructor`, `toString`, `valueOf` and the rest, and
+   * `HANDLERS['constructor']` used to return one of them — a callable the
+   * caller never registered, invoked with the caller's own parameters.
+   */
+  function handlerFor(method) {
+    if (typeof method !== 'string') return null;
+    if (!Object.prototype.hasOwnProperty.call(HANDLERS, method)) return null;
+    const handler = HANDLERS[method];
+    return typeof handler === 'function' ? handler : null;
+  }
+
   window.addEventListener('message', async (event) => {
     if (event.source !== window) return;
     if (event.origin !== ORIGIN) return;
     const msg = event.data;
-    if (!msg || msg.source !== REQ || typeof msg.id !== 'string') return;
+    if (!msg || typeof msg !== 'object') return;
 
-    const reply = (payload) =>
-      window.postMessage({ source: RES, id: msg.id, ...payload }, ORIGIN);
+    // The handshake. The first asker gets the secret and is the only one who
+    // can ask again — a retry has to be answerable, or a driver that loaded
+    // after the content script could never be reached, but answering a second
+    // nonce would hand the page the key to the whole channel.
+    if (msg.source === wire.HELLO && typeof msg.nonce === 'string' && !msg.secret) {
+      if (claimant === null) claimant = msg.nonce;
+      if (claimant !== msg.nonce) return;
+      window.postMessage({ source: wire.HELLO, nonce: msg.nonce, secret: SECRET }, ORIGIN);
+      return;
+    }
 
-    const handler = HANDLERS[msg.method];
+    if (msg.source !== wire.REQ || typeof msg.id !== 'string') return;
+
+    await keyReady;
+    // Unstamped, wrongly stamped, or stamped for a different message: some
+    // other script on the page is talking, and it does not get to drive the
+    // chart or write Pine. The stamp is checked against this request's own verb
+    // and arguments, so one lifted from a request the page watched go by does
+    // not carry over to another. Answering with an error would tell it what the
+    // method table looks like, so it gets nothing.
+    const expected = await wire.stamp(key, msg.id, 'req', wire.body(msg.method, msg.params));
+    if (msg.stamp !== expected) {
+      log('dropped an unauthenticated request for', msg.method);
+      return;
+    }
+    // And once each: a whole message can still be captured and sent again,
+    // which for anything that writes is a second write.
+    if (!claimId(msg.id)) {
+      log('dropped a replayed request for', msg.method);
+      return;
+    }
+
+    const reply = async (payload) =>
+      window.postMessage(
+        { source: wire.RES, id: msg.id, stamp: await wire.stamp(key, msg.id, 'res'), ...payload },
+        ORIGIN
+      );
+
+    const handler = handlerFor(msg.method);
     if (!handler) {
       reply({ ok: false, error: `Unknown method "${msg.method}".` });
       return;
@@ -988,21 +1145,36 @@
     }
   });
 
-  // Expose for manual poking from DevTools (not used by the extension).
-  window.__tvAgent = {
-    call: (m, p) => HANDLERS[m](p || {}),
-    methods: Object.keys(HANDLERS),
-    // Test-only seam, kept past task 3: it does to a page exactly what mount
-    // does — preparePage, then adopt — minus the DOM, so the state machine can
-    // be driven without a toolbar to clone from. Anything that mount does to
-    // the page itself has to happen here too, or the tests go green over a page
-    // the host cannot activate.
-    __adopt: (page, title) => {
-      preparePage(page, title || 'TVAgent');
-      wb.page = page;
-      watchActive();
-    },
-  };
+  /**
+   * DevTools seam, and the tests' way in. Behind the debug flag rather than
+   * always on: a global that calls straight into HANDLERS, bypassing the
+   * stamped bridge, is a hole in everything above it, and shipping one to
+   * every user so that a handful of people can poke at it in a console is not
+   * a trade worth making. `localStorage['tv-agent-debug'] = '1'`, then reload.
+   */
+  if (debugOn()) {
+    window.__tvAgent = {
+      call: (m, p) => {
+        const handler = handlerFor(m);
+        if (!handler) throw new Error(`Unknown method "${m}".`);
+        return handler(p || {});
+      },
+      methods: Object.keys(HANDLERS),
+      // Test-only seam: it does to a page exactly what mount does —
+      // preparePage, then adopt — minus the DOM, so the state machine can be
+      // driven without a toolbar to clone from. Anything mount does to the
+      // page itself has to happen here too, or the tests go green over a page
+      // the host cannot activate.
+      __adopt: (page, title) => {
+        preparePage(page, title || 'TVAgent');
+        wb.page = page;
+        watchActive();
+      },
+    };
+  }
+
+  // Says "I am here" to a content script that loaded first and is waiting.
+  window.postMessage({ source: wire.HELLO, announce: true }, ORIGIN);
 
   log('driver ready,', Object.keys(HANDLERS).length, 'methods');
 })();

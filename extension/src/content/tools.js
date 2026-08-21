@@ -9,6 +9,15 @@
  *   1 — visual/chart change  → auto
  *   2 — persistent change    → confirmation unless auto-approve is on
  *   3 — financial            → not implemented, deliberately
+ *
+ * This list is the whole of what the model may invoke. A name that is not in
+ * it is not a tool with a high permission level — it is not a tool, and
+ * agent.js refuses it outright rather than putting it to the user as something
+ * to allow.
+ *
+ * `needs` names the capability a tool depends on, on the tool itself. It used
+ * to be a shadow list of tool names inside isAvailable(), which is a second
+ * place to remember whenever a tool is added or renamed.
  */
 window.TVAgentTools = (() => {
   'use strict';
@@ -26,6 +35,7 @@ window.TVAgentTools = (() => {
     },
     {
       level: 0,
+      needs: 'series',
       name: 'get_series_data',
       description:
         'Get recent OHLCV bars for the current symbol and timeframe. Only the bars ' +
@@ -237,6 +247,7 @@ window.TVAgentTools = (() => {
     // ---- pine ------------------------------------------------------------
     {
       level: 1,
+      needs: 'pine',
       name: 'open_pine_editor',
       description:
         'Open the Pine Editor. Pass newScript: true (the default) to start a blank script ' +
@@ -249,6 +260,7 @@ window.TVAgentTools = (() => {
     },
     {
       level: 2,
+      needs: 'pine',
       name: 'set_pine_code',
       description:
         'Replace the Pine Editor contents with your script. Write Pine v6 ("//@version=6"). ' +
@@ -262,6 +274,7 @@ window.TVAgentTools = (() => {
     },
     {
       level: 2,
+      needs: 'pine',
       name: 'add_pine_to_chart',
       description:
         'Compile the current Pine Editor script and add it to the chart. Returns the new ' +
@@ -273,6 +286,7 @@ window.TVAgentTools = (() => {
     // ---- strategy --------------------------------------------------------
     {
       level: 0,
+      needs: 'strategy',
       name: 'get_strategy_report',
       description:
         'Read backtest results for a strategy on the chart: net profit, profit factor, ' +
@@ -288,7 +302,7 @@ window.TVAgentTools = (() => {
 
   const byName = new Map(TOOLS.map((t) => [t.name, t]));
 
-  /** The API wants only the wire fields — `level` is ours. */
+  /** The API wants only the wire fields — `level` and `needs` are ours. */
   function forApi(capabilities) {
     return TOOLS
       .filter((t) => isAvailable(t, capabilities))
@@ -296,18 +310,13 @@ window.TVAgentTools = (() => {
   }
 
   function isAvailable(tool, caps) {
-    if (!caps) return true;
-    const pineTools = ['open_pine_editor', 'set_pine_code', 'add_pine_to_chart'];
-    if (pineTools.includes(tool.name) && !caps.pine) return false;
-    if (tool.name === 'get_strategy_report' && !caps.strategy) return false;
-    if (tool.name === 'get_series_data' && !caps.series) return false;
-    return true;
+    if (!tool) return false;
+    if (!caps || !tool.needs) return true;
+    return !!caps[tool.needs];
   }
 
-  function levelOf(name) {
-    const t = byName.get(name);
-    return t ? t.level : 3;
-  }
+  /** The tool by that name, or null. Null means "no such tool", not "level 3". */
+  const get = (name) => byName.get(name) || null;
 
-  return { TOOLS, forApi, levelOf, isAvailable };
+  return { TOOLS, forApi, isAvailable, get };
 })();
