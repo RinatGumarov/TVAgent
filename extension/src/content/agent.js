@@ -37,16 +37,26 @@ How to answer:
       this.handlers = opts.handlers || {};
       this.messages = [];
       this.running = false;
-      this.cancelled = false;
       this.port = null;
       this.abortTurn = null;
+      this.partialResults = null;
     }
 
-    get busy() { return this.running; }
+    /**
+     * Which run is allowed to write. Bumped by anything that ends a run, so a
+     * loop parked on an await can tell that it is no longer the one.
+     */
+    #run = 0;
+
+    #stale(run) {
+      return run !== this.#run;
+    }
 
     cancel() {
       if (!this.running) return;
-      this.cancelled = true;
+      // First, and synchronously: whatever the abandoned loop is parked on
+      // resumes after this returns, and this is what tells it to stop.
+      this.#run++;
       if (this.port) { try { this.port.disconnect(); } catch (_) {} this.port = null; }
       // Disconnecting our own end never fires onDisconnect, so settle the
       // in-flight turn by hand or #loop() would await it forever.
@@ -84,30 +94,44 @@ How to answer:
       this.partialResults = null;
     }
 
+    /**
+     * New chat. A run in flight ends first, or its next write would land at
+     * the head of the empty history.
+     */
     reset() {
+      this.cancel();
       this.messages = [];
+      this.partialResults = null;
     }
 
     async send(userText) {
       if (this.running) return;
+      const run = ++this.#run;
+      this.running = true;
       this.messages.push({ role: 'user', content: userText });
-      await this.#loop();
+      await this.#loop(run);
     }
 
-    async #loop() {
-      this.running = true;
-      this.cancelled = false;
-
+    async #loop(run) {
       try {
         for (let i = 0; i < MAX_ITERATIONS; i++) {
-          if (this.cancelled) return;
+          if (this.#stale(run)) return;
 
           const response = await this.#turn();
-          if (this.cancelled) return;
+          if (this.#stale(run)) return;
 
-          this.messages.push({ role: 'assistant', content: response.content });
+          const content = response.content || [];
+          const toolUses = content.filter((b) => b.type === 'tool_use');
 
-          const toolUses = response.content.filter((b) => b.type === 'tool_use');
+          // The API rejects an assistant turn with empty content, so the run
+          // ends here instead of recording one.
+          if (content.length === 0) {
+            this.handlers.onDone?.({ stopReason: response.stop_reason });
+            return;
+          }
+
+          this.messages.push({ role: 'assistant', content });
+
           if (toolUses.length === 0) {
             this.handlers.onDone?.({ stopReason: response.stop_reason });
             return;
@@ -116,9 +140,12 @@ How to answer:
           const results = [];
           this.partialResults = results;
           for (const call of toolUses) {
-            if (this.cancelled) return;
-            results.push(await this.#runTool(call));
+            if (this.#stale(run)) return;
+            results.push(await this.#runTool(call, run));
           }
+          // cancel() has already answered the batch through
+          // #closeDanglingToolCalls.
+          if (this.#stale(run)) return;
           this.partialResults = null;
           this.messages.push({ role: 'user', content: results });
         }
@@ -127,10 +154,14 @@ How to answer:
           new Error(`Stopped after ${MAX_ITERATIONS} steps without finishing. Try a narrower request.`)
         );
       } catch (err) {
-        if (!this.cancelled) this.handlers.onError?.(err);
+        if (!this.#stale(run)) this.handlers.onError?.(err);
       } finally {
-        this.running = false;
-        this.port = null;
+        // Only for the current run: a cancel()+send() pair may already have
+        // started a new loop.
+        if (!this.#stale(run)) {
+          this.running = false;
+          this.port = null;
+        }
       }
     }
 
@@ -143,8 +174,10 @@ How to answer:
 
         const settle = (fn) => {
           try { port.disconnect(); } catch (_) {}
-          this.port = null;
-          this.abortTurn = null;
+          if (this.port === port) {
+            this.port = null;
+            this.abortTurn = null;
+          }
           fn();
         };
 
@@ -184,17 +217,41 @@ How to answer:
       });
     }
 
-    async #runTool(call) {
-      const level = window.TVAgentTools.levelOf(call.name);
+    /** An answer for a tool that will not run, in the shape the API expects. */
+    #refuse(call, message) {
+      this.handlers.onToolResult?.({ id: call.id, name: call.name, ok: false, result: message });
+      return { type: 'tool_result', tool_use_id: call.id, content: message, is_error: true };
+    }
+
+    async #runTool(call, run) {
+      const tools = window.TVAgentTools;
+      const tool = tools.get(call.name);
+      const level = tool ? tool.level : 3;
       this.handlers.onToolStart?.({ id: call.id, name: call.name, input: call.input, level });
 
-      // Level 2+ needs an explicit yes unless the user turned that off.
-      if (level >= 2 && !this.handlers.autoApprove?.()) {
+      // A name that is not in the tool list is not a tool, whatever its level
+      // would have been.
+      if (!tool) {
+        return this.#refuse(call, `There is no tool called "${call.name}". Use one of the tools you were given.`);
+      }
+      if (!tools.isAvailable(tool, this.capabilities)) {
+        return this.#refuse(call, `The tool "${call.name}" is not available on this chart right now.`);
+      }
+      // Level 3 is financial and deliberately unimplemented. No confirmation
+      // dialog, and no auto-approve switch, can turn one on.
+      if (level >= 3) {
+        return this.#refuse(call, `The tool "${call.name}" is not implemented.`);
+      }
+
+      // Level 2 needs an explicit yes unless the user turned that off.
+      if (level === 2 && !this.handlers.autoApprove?.()) {
         const approved = await this.handlers.onConfirm?.({ name: call.name, input: call.input });
+        // Stop can land while the card is still on screen.
+        if (this.#stale(run)) {
+          return this.#refuse(call, 'The user stopped the run before this tool executed.');
+        }
         if (!approved) {
-          const denial = 'The user declined this action. Do not retry it; ask what they want instead.';
-          this.handlers.onToolResult?.({ id: call.id, name: call.name, ok: false, result: denial });
-          return { type: 'tool_result', tool_use_id: call.id, content: denial, is_error: true };
+          return this.#refuse(call, 'The user declined this action. Do not retry it; ask what they want instead.');
         }
       }
 

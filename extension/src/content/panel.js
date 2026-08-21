@@ -111,7 +111,10 @@
     });
 
     root.querySelector('#tva-new').addEventListener('click', () => {
+      // reset() ends a run in flight first; clearing the list before that
+      // would let it write into the fresh chat.
       agent?.reset();
+      if (busy) endRun('ok');
       chat.clear();
       showScreen('chat');
       setEmpty(true);
@@ -373,7 +376,10 @@
     try {
       settings = window.TVAgentSettings.create(settingsEl, {
         onChange: ({ provider, model }) => {
-          modelChipEl.textContent = provider === 'anthropic' ? label(model) : model || 'Pick a model';
+          modelChipEl.textContent =
+            provider === 'anthropic'
+              ? window.TVAgentModels.chip(model)
+              : model || 'Pick a model';
         },
       });
 
@@ -416,6 +422,29 @@
     });
 
     agent = new window.TVAgentRuntime.Agent({ capabilities, handlers: handlers() });
+    watchChart();
+  }
+
+  /**
+   * The driver pushes a fresh capability report on every symbol and
+   * timeframe change. Merged in place, because the agent holds this exact
+   * object and reads it on every turn.
+   */
+  function watchChart() {
+    window.TVAgentBridge.on('chart-changed', (report) => {
+      if (!report || !capabilities) return;
+      // price is absent, not null, until the new symbol's bars load; clear it
+      // so the old one does not linger.
+      delete capabilities.price;
+      Object.assign(capabilities, report);
+      setContext();
+      if (!busy) {
+        setStatus(
+          capabilities.loggedIn ? 'ok' : 'warn',
+          capabilities.loggedIn ? 'connected' : 'logged out'
+        );
+      }
+    });
   }
 
   /** Shown when mount() itself fails and there is no #tva-root to write into. */
@@ -429,13 +458,6 @@
       'font:12px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;z-index:2147483647;';
     document.documentElement.appendChild(el);
   }
-
-  const label = (model) =>
-    ({
-      'claude-opus-5': 'Claude Opus',
-      'claude-sonnet-5': 'Claude Sonnet',
-      'claude-haiku-4-5': 'Claude Haiku',
-    }[model] || model);
 
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type === 'toggle-panel') window.TVAgentMount.toggle();

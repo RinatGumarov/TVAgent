@@ -13,11 +13,7 @@ window.TVAgentSettings = (() => {
     'provider', 'baseUrl', 'openaiApiKey', 'openaiModel',
   ];
 
-  const MODELS = [
-    { value: 'claude-opus-5', label: 'Opus 5' },
-    { value: 'claude-sonnet-5', label: 'Sonnet 5' },
-    { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-  ];
+  const MODELS = window.TVAgentModels.ANTHROPIC;
 
   const EFFORTS = [
     { value: 'low', label: 'Low' },
@@ -32,19 +28,52 @@ window.TVAgentSettings = (() => {
   ];
 
   /**
+   * A password field the rest of the page cannot read: with a closed shadow
+   * root the host reports shadowRoot === null and the only reference to the
+   * input lives in this closure. Custom properties still inherit through, so
+   * it is painted in TradingView's tokens.
+   */
+  function secretField(host, { placeholder }) {
+    const shadow = host.attachShadow({ mode: 'closed' });
+    shadow.innerHTML = `
+      <style>
+        input {
+          box-sizing: border-box;
+          width: 100%;
+          background: none;
+          color: var(--tva-fg);
+          border: 1px solid var(--tva-border);
+          border-radius: 6px;
+          padding: 7px 9px;
+          font: inherit;
+          font-size: 12px;
+          outline: none;
+        }
+        input:focus { border-color: var(--tva-accent); }
+      </style>
+      <input type="password" autocomplete="off" spellcheck="false">
+    `;
+    const input = shadow.querySelector('input');
+    input.placeholder = placeholder;
+    return {
+      get value() { return input.value.trim(); },
+      set value(v) { input.value = v || ''; },
+      onChange: (fn) => input.addEventListener('change', fn),
+    };
+  }
+
+  /**
    * Moves a profile off the old shared key/model slot; the rules live in
    * shared/credentials.js because the worker reads the same way.
    */
   function migrate(s) {
-    const split = s.openaiApiKey !== undefined || s.openaiModel !== undefined;
-    if (s.provider !== 'openai' || split) return s;
-    const shared = s.apiKey || '';
-    const anthropicKey = shared.startsWith('sk-ant-');
+    const slots = window.TVAgentCredentials.split(s);
+    if (!slots.changed) return s;
     const moved = {
-      openaiApiKey: anthropicKey ? '' : shared,
-      openaiModel: s.model || '',
-      apiKey: anthropicKey ? shared : '',
-      model: '',
+      apiKey: slots.apiKey,
+      model: slots.model,
+      openaiApiKey: slots.openaiApiKey,
+      openaiModel: slots.openaiModel,
     };
     chrome.storage.local.set(moved);
     return { ...s, ...moved };
@@ -54,7 +83,7 @@ window.TVAgentSettings = (() => {
     return (
       `<div class="tva-seg" data-seg="${name}">` +
       options
-        .map((o) => `<button type="button" data-value="${o.value}">${o.label}</button>`)
+        .map((o) => `<button type="button" data-value="${o.id || o.value}">${o.label}</button>`)
         .join('') +
       '</div>'
     );
@@ -68,8 +97,8 @@ window.TVAgentSettings = (() => {
       </div>
 
       <div class="tva-set-group" data-for="anthropic">
-        <label class="tva-set-label" for="tva-key">API key</label>
-        <input type="password" id="tva-key" placeholder="sk-ant-..." autocomplete="off" spellcheck="false">
+        <label class="tva-set-label">API key</label>
+        <div class="tva-secret" id="tva-key"></div>
         <p class="tva-set-hint">Stored in this extension only. Never sent to the page or to TradingView.</p>
       </div>
 
@@ -80,8 +109,8 @@ window.TVAgentSettings = (() => {
       </div>
 
       <div class="tva-set-group" data-for="openai">
-        <label class="tva-set-label" for="tva-key2">API key</label>
-        <input type="password" id="tva-key2" placeholder="leave empty for Ollama" autocomplete="off" spellcheck="false">
+        <label class="tva-set-label">API key</label>
+        <div class="tva-secret" id="tva-key2"></div>
       </div>
 
       <div class="tva-set-group" data-for="anthropic">
@@ -110,15 +139,19 @@ window.TVAgentSettings = (() => {
     `;
 
     const q = (sel) => hostEl.querySelector(sel);
-    const keyEl = q('#tva-key');
-    const key2El = q('#tva-key2');
+    const keyEl = secretField(q('#tva-key'), { placeholder: 'sk-ant-...' });
+    const key2El = secretField(q('#tva-key2'), { placeholder: 'leave empty for Ollama' });
     const baseEl = q('#tva-base');
     const model2El = q('#tva-model2');
     const autoEl = q('#tva-auto');
     const modelsEl = q('#tva-models');
     const hintEl = q('#tva-model-hint');
 
-    const state = { provider: 'anthropic', model: 'claude-opus-5', effort: 'high' };
+    const state = {
+      provider: 'anthropic',
+      model: window.TVAgentModels.DEFAULT_MODEL,
+      effort: 'high',
+    };
 
     function paintSegments() {
       hostEl.querySelectorAll('.tva-seg').forEach((seg) => {
@@ -156,12 +189,8 @@ window.TVAgentSettings = (() => {
       });
     });
 
-    keyEl.addEventListener('change', () =>
-      chrome.storage.local.set({ apiKey: keyEl.value.trim() })
-    );
-    key2El.addEventListener('change', () =>
-      chrome.storage.local.set({ openaiApiKey: key2El.value.trim() })
-    );
+    keyEl.onChange(() => chrome.storage.local.set({ apiKey: keyEl.value }));
+    key2El.onChange(() => chrome.storage.local.set({ openaiApiKey: key2El.value }));
     baseEl.addEventListener('change', () =>
       chrome.storage.local.set({ baseUrl: baseEl.value.trim() }).then(loadModels)
     );
@@ -218,7 +247,7 @@ window.TVAgentSettings = (() => {
       .then(migrate)
       .then((s) => {
         state.provider = s.provider || 'anthropic';
-        state.model = s.model || 'claude-opus-5';
+        state.model = s.model || window.TVAgentModels.DEFAULT_MODEL;
         state.effort = s.effort || 'high';
         keyEl.value = s.apiKey || '';
         key2El.value = s.openaiApiKey || '';

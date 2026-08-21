@@ -411,6 +411,9 @@
   outline: none;
 }
 #tva-root .tva-settings input:focus { border-color: var(--tva-accent); }
+/* The API key fields are closed shadow roots, so their own styling is inside
+   them (panel-settings.js) — this is only the box they sit in. */
+#tva-root .tva-secret { display: block; }
 #tva-root .tva-seg {
   display: flex;
   border: 1px solid var(--tva-border);

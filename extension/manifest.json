@@ -28,14 +28,21 @@
   "content_scripts": [
     {
       "matches": ["https://*.tradingview.com/chart/*"],
-      "js": ["src/injected/driver.js"],
+      "js": ["src/injected/wire.js", "src/injected/wait.js", "src/injected/driver.js"],
       "world": "MAIN",
-      "run_at": "document_idle"
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://*.tradingview.com/chart/*"],
+      "js": ["src/shared/wire.js", "src/shared/wait.js", "src/content/bridge.js"],
+      "world": "ISOLATED",
+      "run_at": "document_start"
     },
     {
       "matches": ["https://*.tradingview.com/chart/*"],
       "js": [
-        "src/content/bridge.js",
+        "src/shared/models.js",
+        "src/shared/credentials.js",
         "src/content/tools.js",
         "src/content/agent.js",
         "src/content/panel-mount.js",

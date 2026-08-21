@@ -8,14 +8,18 @@
  * blocks on the way in.
  */
 
+importScripts('/src/shared/models.js', '/src/shared/credentials.js');
+
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULTS = {
   provider: 'anthropic',
-  model: 'claude-opus-5',
+  model: TVAgentModels.DEFAULT_MODEL,
   baseUrl: 'http://localhost:11434/v1',
-  maxTokens: 32000,
   effort: 'high',
 };
+
+/** Not configurable. */
+const MAX_TOKENS = 32000;
 
 /**
  * The active provider's own key and model; each provider has its own storage
@@ -23,28 +27,22 @@ const DEFAULTS = {
  */
 async function settings() {
   const s = await chrome.storage.local.get([
-    'apiKey', 'model', 'effort', 'maxTokens', 'provider', 'baseUrl',
-    'openaiApiKey', 'openaiModel',
+    'apiKey', 'model', 'effort', 'provider', 'baseUrl', 'openaiApiKey', 'openaiModel',
   ]);
   const provider = s.provider || DEFAULTS.provider;
   const common = {
     provider,
     baseUrl: (s.baseUrl || DEFAULTS.baseUrl).replace(/\/+$/, ''),
     effort: s.effort || DEFAULTS.effort,
-    maxTokens: s.maxTokens || DEFAULTS.maxTokens,
+    maxTokens: MAX_TOKENS,
   };
+
+  const slots = TVAgentCredentials.split(s);
 
   if (provider === 'anthropic') {
-    return { ...common, apiKey: s.apiKey || '', model: s.model || DEFAULTS.model };
+    return { ...common, apiKey: slots.apiKey, model: slots.model || DEFAULTS.model };
   }
-
-  const legacy = s.openaiApiKey === undefined && s.openaiModel === undefined;
-  const shared = s.apiKey || '';
-  return {
-    ...common,
-    apiKey: legacy ? (shared.startsWith('sk-ant-') ? '' : shared) : (s.openaiApiKey || ''),
-    model: (legacy ? s.model : s.openaiModel) || '',
-  };
+  return { ...common, apiKey: slots.openaiApiKey, model: slots.openaiModel };
 }
 
 /** What has to be in place before a turn can go out, in the user's terms. */
@@ -81,19 +79,29 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'tvagent-llm') return;
 
   let aborter = null;
-  port.onDisconnect.addListener(() => aborter?.abort());
+  let closed = false;
+  port.onDisconnect.addListener(() => {
+    closed = true;
+    aborter?.abort();
+  });
 
   port.onMessage.addListener(async (msg) => {
     if (msg.type !== 'run') return;
 
+    // Allocated before the first await, so a disconnect during the storage
+    // read still aborts the turn.
+    aborter = new AbortController();
+    if (closed) return;
+
     const cfg = await settings();
+    if (closed) return;
+
     const problem = configError(cfg);
     if (problem) {
       port.postMessage({ type: 'error', error: problem });
       return;
     }
 
-    aborter = new AbortController();
     try {
       const message = cfg.provider === 'anthropic'
         ? await streamAnthropic(cfg, msg, port, aborter.signal)
@@ -156,10 +164,8 @@ async function streamAnthropic(cfg, req, port, signal) {
     system: req.system,
     messages: req.messages,
     tools: req.tools,
-    // Thinking is on by default on Opus 5; ask for the summary so the panel
-    // can show reasoning instead of a silent pause.
-    thinking: { type: 'adaptive', display: 'summarized' },
-    output_config: { effort: cfg.effort },
+    // The catalog says which reasoning fields each model accepts.
+    ...TVAgentModels.reasoning(cfg.model, { effort: cfg.effort, maxTokens: cfg.maxTokens }),
   };
 
   const response = await fetch(ANTHROPIC_URL, {
@@ -243,7 +249,20 @@ async function parseAnthropicStream(response, port) {
     }
   }
 
-  return { content: blocks.filter(Boolean), stop_reason: stopReason };
+  // The API refuses an empty text block when it is echoed back, and one
+  // poisons every later turn.
+  return { content: blocks.filter(nonEmpty), stop_reason: stopReason };
+}
+
+function nonEmpty(block) {
+  if (!block) return false;
+  if (block.type === 'text') return !!(block.text && block.text.trim());
+  // A thinking block with a signature has to survive even when its summary is
+  // blank.
+  if (block.type === 'thinking') {
+    return !!((block.thinking && block.thinking.trim()) || block.signature);
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -406,10 +425,17 @@ async function streamOpenAI(cfg, req, port, signal) {
   return parseOpenAIStream(response, port);
 }
 
+/**
+ * Reassembles an OpenAI-shaped stream into Anthropic content blocks. Tool
+ * calls arrive as fragments keyed by `index`; when a provider omits it, a
+ * fragment belongs to the call its id names, or to the call still being
+ * streamed.
+ */
 async function parseOpenAIStream(response, port) {
   let text = '';
   let thinking = '';
-  const calls = new Map(); // choice index → { id, name, args }
+  const calls = new Map(); // call key → { id, name, args }
+  let openCall = null; // the key the last fragment belonged to
   let stopReason = null;
   let startedText = false;
   let startedThinking = false;
@@ -438,15 +464,24 @@ async function parseOpenAIStream(response, port) {
     }
 
     for (const tc of delta.tool_calls || []) {
-      const key = tc.index ?? calls.size;
-      const call = calls.get(key) || { id: '', name: '', args: '' };
+      const key =
+        tc.index != null ? `#${tc.index}`
+        : tc.id ? `id:${tc.id}`
+        : openCall ?? '#0';
+      openCall = key;
+
+      const known = calls.get(key);
+      const call = known || { id: '', name: '', args: '' };
       if (tc.id) call.id = tc.id;
-      if (tc.function?.name) {
-        call.name = tc.function.name;
-        port.postMessage({ type: 'block_start', blockType: 'tool_use', name: call.name });
-      }
+      // Some providers stream the name in pieces; others repeat it whole on
+      // every fragment.
+      const part = tc.function?.name;
+      if (part && call.name !== part) call.name += part;
       if (tc.function?.arguments) call.args += tc.function.arguments;
       calls.set(key, call);
+
+      // Once per call, not once per fragment that happens to carry a name.
+      if (!known) port.postMessage({ type: 'block_start', blockType: 'tool_use', name: call.name });
     }
 
     if (choice.finish_reason) stopReason = STOP_REASONS[choice.finish_reason] || choice.finish_reason;
@@ -456,7 +491,8 @@ async function parseOpenAIStream(response, port) {
   if (thinking) content.push({ type: 'thinking', thinking });
   if (text) content.push({ type: 'text', text });
 
-  for (const [key, call] of calls) {
+  let synthesized = 0;
+  for (const call of calls.values()) {
     let input = {};
     try {
       input = call.args ? JSON.parse(call.args) : {};
@@ -469,7 +505,7 @@ async function parseOpenAIStream(response, port) {
       type: 'tool_use',
       // Some providers omit ids on single-call turns, but the agent loop keys
       // tool results by id, so synthesize one when it is missing.
-      id: call.id || `call_${key}`,
+      id: call.id || `call_${synthesized++}`,
       name: call.name,
       input,
     });
