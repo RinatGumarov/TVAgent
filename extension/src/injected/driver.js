@@ -1,8 +1,8 @@
 /**
  * TVAgent — page-context driver.
  *
- * Runs in the MAIN world so it can reach `window.TradingViewApi`, the semantic
- * API TradingView exposes on chart pages (see docs/internal-api-map.md).
+ * Runs in the MAIN world so it can reach the semantic API exposed on chart
+ * pages.
  *
  * Talks to the extension's content script over window.postMessage — a channel
  * every other script on the page shares, so requests are authenticated with

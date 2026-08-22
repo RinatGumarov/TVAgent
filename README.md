@@ -7,10 +7,6 @@ no screen scraping.
 Ask it "add EMA 50 and 200", "mark the high and low of the visible range", or
 "build an EMA crossover strategy and backtest it", and it does the work.
 
-- [The plan](tradingview-ai-agent-plan.md) — product and architecture
-- [Internal API map](docs/internal-api-map.md) — how TradingView is driven, with
-  what's verified and what isn't
-
 ---
 
 ## Install
