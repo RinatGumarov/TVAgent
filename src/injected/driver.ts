@@ -7,8 +7,30 @@
  */
 import * as wire from '../shared/wire.ts';
 import { poll } from '../shared/wait.ts';
+import type { Chart, WidgetBarLayout, WidgetBarPage } from '../types/tradingview.d.ts';
+import type { ProbeReport } from '../shared/protocol.ts';
 
 /** Mints the secret, registers the handlers and announces the driver. */
+/** A tool call's arguments, as they came off the wire. */
+type Params = Record<string, unknown>;
+
+/**
+ * A strategy's report, as TradingView fills it in. Only the fields the
+ * summary reads are named; the rest passes through untouched.
+ */
+interface StrategyReport {
+  performance?: Record<string, Record<string, unknown>>;
+  trades?: unknown[];
+  currency?: unknown;
+  settings?: { dateRange?: unknown };
+}
+
+/** One end of a drawing, as the model sends it. */
+interface Point {
+  time: unknown;
+  price: unknown;
+}
+
 export function startDriver() {
   const ORIGIN = window.location.origin;
 
@@ -17,8 +39,8 @@ export function startDriver() {
    * document_start, and never put on the wire again.
    */
   const SECRET = wire.id();
-  let claimant = null;
-  let key = null;
+  let claimant: string | null = null;
+  let key: CryptoKey | null = null;
   const keyReady = wire.key(SECRET).then((k) => (key = k));
 
   const debugOn = () => {
@@ -28,7 +50,7 @@ export function startDriver() {
       return false; // storage can be blocked outright
     }
   };
-  const log = (...a) => {
+  const log = (...a: unknown[]) => {
     if (debugOn()) console.log('[TVAgent/page]', ...a);
   };
 
@@ -58,10 +80,10 @@ export function startDriver() {
    * Snaps a timestamp to the nearest loaded bar; createShape throws on a
    * time that is not one. NaN is refused rather than snapped.
    */
-  function snapToBar(time) {
+  function snapToBar(time: number) {
     const b = bars();
-    const first = b.valueAt(b.firstIndex())[0];
-    const last = b.valueAt(b.lastIndex())[0];
+    const first = b.valueAt(b.firstIndex())![0];
+    const last = b.valueAt(b.lastIndex())![0];
     if (Number.isNaN(time)) {
       throw new Error(
         'time must be a unix timestamp in seconds — got something that is not a number.',
@@ -84,7 +106,7 @@ export function startDriver() {
   }
 
   function studyCatalog() {
-    const repo = chart().studyMetaIntoRepository();
+    const repo = chart().studyMetaIntoRepository?.();
     if (!repo || !repo.getInternalMetaInfoArray) return [];
     return repo.getInternalMetaInfoArray().map((m) => ({
       id: m.id,
@@ -97,11 +119,11 @@ export function startDriver() {
    * The display name createStudy wants. Shorthand like "EMA" is the
    * catalog's own shortDescription, so the catalog answers for itself.
    */
-  function findStudyName(query) {
+  function findStudyName(query: unknown) {
     const all = studyCatalog();
     const q = String(query).trim().toLowerCase();
-    const name = (s) => (s.name || '').toLowerCase();
-    const short = (s) => (s.short || '').toLowerCase();
+    const name = (s: { name?: string }) => (s.name || '').toLowerCase();
+    const short = (s: { short?: string }) => (s.short || '').toLowerCase();
 
     const exact = all.find((s) => name(s) === q) || all.find((s) => short(s) === q);
     if (exact) return exact.name;
@@ -114,12 +136,15 @@ export function startDriver() {
     );
   }
 
-  function studySummary(entity) {
-    const out = { id: entity.id, name: entity.name };
+  function studySummary(entity: { id: string; name: string }) {
+    const out: { id: string; name: string; inputs?: unknown; error?: boolean } = {
+      id: entity.id,
+      name: entity.name,
+    };
     try {
       const s = chart().getStudyById(entity.id);
-      out.inputs = s.getInputValues ? s.getInputValues() : undefined;
-      if (s.hasError && s.hasError()) out.error = true;
+      out.inputs = s?.getInputValues ? s.getInputValues() : undefined;
+      if (s?.hasError && s.hasError()) out.error = true;
     } catch (_) {
       /* study may still be building */
     }
@@ -139,29 +164,47 @@ export function startDriver() {
    * Asynchronous because stamping is, and it waits for the key rather than
    * dropping an early event.
    */
-  function emit(type, payload) {
+  function emit(type: string, payload: unknown) {
     const id = wire.id();
     keyReady
-      .then(() => wire.stamp(key, id, 'evt', wire.body(type, payload)))
+      .then(() => wire.stamp(key!, id, 'evt', wire.body(type, payload)))
       .then((stamp) => {
         window.postMessage({ source: wire.EVT, id, stamp, type, payload }, ORIGIN);
       });
   }
 
-  const wb = {
-    page: null, // WidgetBarPage handed out by layout.createPage()
-    el: null, // page.element()
-    button: null, // our cloned tab button
-    observer: null, // MutationObserver over the right toolbar
-    prevPage: null, // the user's tab, to put back on deactivate
+  interface WidgetBarState {
+    /** Handed out by layout.createPage(). */
+    page: WidgetBarPage | null;
+    el: HTMLElement | null;
+    /** Our cloned tab button. */
+    button: HTMLElement | null;
+    observer: MutationObserver | null;
+    /** The user's tab, to put back on deactivate. */
+    prevPage: WidgetBarPage | null;
+    prevMinimized: boolean;
+    /**
+     * The layout we are subscribed to, not a flag: TradingView swaps the
+     * whole layout object when it refreshes the bar from account settings.
+     */
+    watching: WidgetBarLayout | null;
+    unloadArmed: boolean;
+    /** Undefined, not false — the first sync may legitimately be false. */
+    lastActive: boolean | undefined;
+    /** The in-flight mount, shared by concurrent widgetbar_mount calls. */
+    mounting: Promise<unknown> | null;
+  }
+
+  const wb: WidgetBarState = {
+    page: null,
+    el: null,
+    button: null,
+    observer: null,
+    prevPage: null,
     prevMinimized: false,
-    // The layout we are subscribed to, not a flag: TradingView swaps the
-    // whole layout object when it refreshes the bar from account settings.
     watching: null,
     unloadArmed: false,
-    // Must start undefined, not false — the first sync may legitimately be false.
     lastActive: undefined,
-    // The in-flight mount, shared by concurrent widgetbar_mount calls.
     mounting: null,
   };
 
@@ -259,12 +302,12 @@ export function startDriver() {
    * The members of TradingView's observable that their tab button components
    * actually use: value, setValue, subscribe(cb, options), unsubscribe(cb).
    */
-  function watchedValue(initial) {
+  function watchedValue<T>(initial: T) {
     let current = initial;
-    const subs = [];
+    const subs: Array<(value: T) => void> = [];
     return {
       value: () => current,
-      setValue(next) {
+      setValue(next: T) {
         if (next === current) return;
         current = next;
         subs.slice().forEach((fn) => {
@@ -275,11 +318,11 @@ export function startDriver() {
           }
         });
       },
-      subscribe(fn, options) {
+      subscribe(fn: (value: T) => void, options?: { callWithLast?: boolean }) {
         subs.push(fn);
         if (options && options.callWithLast) fn(current);
       },
-      unsubscribe(fn) {
+      unsubscribe(fn?: (value: T) => void) {
         if (!fn) {
           subs.length = 0;
           return;
@@ -297,7 +340,7 @@ export function startDriver() {
    * button, and `onClick` is empty so nothing can reach the host's tab-click
    * handler.
    */
-  function inertTab(hint) {
+  function inertTab(hint?: string) {
     const active = watchedValue(false);
     const count = watchedValue(0);
     const ariaLabel = watchedValue('');
@@ -316,14 +359,15 @@ export function startDriver() {
       onClick: watchedValue(undefined),
       visible: watchedValue(false),
       // The three methods a page calls on its `tab`.
-      onActiveStateChange: (state) => active.setValue(!!state),
-      updateNotifications: (value) => count.setValue(Number(value) || 0),
-      updateNotificationCounterAriaLabel: (value) => ariaLabel.setValue(String(value || '')),
+      onActiveStateChange: (state: unknown) => active.setValue(!!state),
+      updateNotifications: (value: unknown) => count.setValue(Number(value) || 0),
+      updateNotificationCounterAriaLabel: (value: unknown) =>
+        ariaLabel.setValue(String(value || '')),
     };
   }
 
   /** Everything the host needs true of our page before it joins the rotation. */
-  function preparePage(page, title) {
+  function preparePage(page: WidgetBarPage, title: string) {
     page.tab = inertTab(title);
     // A name keeps the toolbar from logging a missing-field warning and gives
     // React a stable key.
@@ -337,7 +381,7 @@ export function startDriver() {
    * the active one: the close button has no aria-pressed, and the active
    * tab's hash would leave ours lit.
    */
-  function injectButton(label, title) {
+  function injectButton(label: string, title: string) {
     const toolbar = document.querySelector('[data-name="right-toolbar"]');
     if (!toolbar) throw new Error('Right toolbar not found.');
 
@@ -346,7 +390,7 @@ export function startDriver() {
       toolbar.querySelector('button[data-name]:not(:disabled)');
     if (!model) throw new Error('No widget bar button to clone.');
 
-    const btn = model.cloneNode(false);
+    const btn = model.cloneNode(false) as HTMLElement;
     btn.setAttribute('data-name', 'tva-agent');
     btn.setAttribute('aria-label', title);
     btn.setAttribute('data-tooltip', title);
@@ -372,8 +416,11 @@ export function startDriver() {
   }
 
   /** The top group ends at the first child that is not a button (the filler). */
-  function placeButton(toolbar, btn) {
-    const anchor = Array.prototype.find.call(toolbar.children, (c) => c.tagName !== 'BUTTON');
+  function placeButton(toolbar: Element, btn: Element) {
+    const anchor = Array.prototype.find.call(
+      toolbar.children,
+      (c: Element) => c.tagName !== 'BUTTON',
+    );
     toolbar.insertBefore(btn, anchor || null);
   }
 
@@ -381,7 +428,7 @@ export function startDriver() {
    * React owns the toolbar and can drop our button on any re-render; put it
    * back.
    */
-  function watchToolbar(toolbar, btn) {
+  function watchToolbar(toolbar: Element, btn: Element) {
     wb.observer = new window.MutationObserver(() => {
       if (!toolbar.contains(btn)) placeButton(toolbar, btn);
       syncActive();
@@ -439,7 +486,7 @@ export function startDriver() {
    * Creates the widget bar page. A mount already in flight is shared rather
    * than repeated.
    */
-  function wbMount(opts) {
+  function wbMount(opts: Params) {
     if (wb.el && document.contains(wb.el)) return Promise.resolve({ ok: true, pageId: PAGE_ID });
     if (wb.mounting) return wb.mounting;
     wb.mounting = wbMountBody(opts).finally(() => {
@@ -516,7 +563,7 @@ export function startDriver() {
     // explicitly.
     const index = ourIndex();
     if (index === -1 || index !== L.activeIndex) return { ok: true };
-    if (wb.prevPage) L.switchPage(wb.prevPage);
+    if (wb.prevPage) L.switchPage(L.pages.indexOf(wb.prevPage));
     if (wb.prevMinimized) L.setMinimizedState(true);
     return { ok: true };
   }
@@ -533,13 +580,13 @@ export function startDriver() {
   const CHART_READY_ATTEMPTS = 12;
   const CHART_READY_INTERVAL_MS = 500;
 
-  let watchedChart = null;
-  let announceTimer = null;
+  let watchedChart: Chart | null = null;
+  let announceTimer: ReturnType<typeof setTimeout> | null = null;
   // A newer poll retires an older one still in flight.
   let announceGeneration = 0;
 
   function announceChart() {
-    clearTimeout(announceTimer);
+    if (announceTimer) clearTimeout(announceTimer);
     announceTimer = setTimeout(async () => {
       const mine = ++announceGeneration;
       const current = () => mine === announceGeneration;
@@ -574,9 +621,11 @@ export function startDriver() {
     let subscribed = false;
     for (const name of ['onSymbolChanged', 'onIntervalChanged']) {
       try {
-        const subscription = typeof c[name] === 'function' ? c[name]() : null;
-        if (!subscription || typeof subscription.subscribe !== 'function') continue;
-        subscription.subscribe(null, announceChart);
+        const source = (c as unknown as Record<string, () => unknown>)[name];
+        const subscription = typeof source === 'function' ? source.call(c) : null;
+        const sub = subscription as { subscribe?: (owner: unknown, fn: () => void) => void } | null;
+        if (!sub || typeof sub.subscribe !== 'function') continue;
+        sub.subscribe(null, announceChart);
         subscribed = true;
       } catch (e) {
         log(`could not subscribe to ${name}`, e);
@@ -590,7 +639,7 @@ export function startDriver() {
   const HANDLERS = {
     /** Startup capability probe. */
     async probe() {
-      const report = {
+      const report: ProbeReport = {
         tradingViewApi: typeof window.TradingViewApi === 'object' && !!window.TradingViewApi,
         loggedIn: false,
         chart: false,
@@ -648,13 +697,13 @@ export function startDriver() {
         // the bars have loaded.
         if (report.series) {
           try {
-            report.price = loadedBars.last().value[4];
+            report.price = loadedBars!.last()!.value[4];
           } catch (_) {
             /* leave price absent */
           }
         }
       } catch (e) {
-        report.warnings.push('Chart not ready: ' + e.message);
+        report.warnings.push('Chart not ready: ' + (e as Error).message);
       }
       report.ready = report.chart && !!report.symbol && report.resolution != null;
 
@@ -686,10 +735,10 @@ export function startDriver() {
         visibleRange: c.getVisibleRange(),
         indicators: c.getAllStudies().map(studySummary),
         drawings: c.getAllShapes(),
-      };
+      } as Record<string, unknown>;
       try {
         const b = bars();
-        const last = b.last().value;
+        const last = b.last()!.value;
         ctx.lastBar = {
           time: last[0],
           open: last[1],
@@ -737,7 +786,7 @@ export function startDriver() {
           high: { price: high.high, time: high.time },
           low: { price: low.low, time: low.time },
           first: { time: out[0].time, open: out[0].open },
-          last: { time: out.at(-1).time, close: out.at(-1).close },
+          last: { time: out.at(-1)!.time, close: out.at(-1)!.close },
         },
         bars: out,
       };
@@ -745,28 +794,28 @@ export function startDriver() {
 
     // ---- chart ------------------------------------------------------------
 
-    async set_symbol({ symbol }) {
+    async set_symbol({ symbol }: Params) {
       if (!symbol) throw new Error('symbol is required');
       const ok = await chart().setSymbol(String(symbol));
       if (!ok) throw new Error(`TradingView rejected symbol "${symbol}".`);
       return { symbol: chart().symbol(), timeframe: chart().resolution() };
     },
 
-    async set_timeframe({ timeframe }) {
+    async set_timeframe({ timeframe }: Params) {
       if (!timeframe) throw new Error('timeframe is required');
       const ok = await chart().setResolution(String(timeframe));
       if (!ok) throw new Error(`TradingView rejected timeframe "${timeframe}".`);
       return { symbol: chart().symbol(), timeframe: chart().resolution() };
     },
 
-    async set_visible_range({ from, to }) {
+    async set_visible_range({ from, to }: Params) {
       await chart().setVisibleRange({ from: Number(from), to: Number(to) });
       return { visibleRange: chart().getVisibleRange() };
     },
 
     // ---- indicators -------------------------------------------------------
 
-    async search_indicators({ query, limit = 20 }) {
+    async search_indicators({ query, limit = 20 }: Params) {
       const all = studyCatalog();
       const q = String(query || '')
         .trim()
@@ -784,10 +833,15 @@ export function startDriver() {
       return { indicators: chart().getAllStudies().map(studySummary) };
     },
 
-    async add_indicator({ name, inputs = {}, overlay = false }) {
+    async add_indicator({ name, inputs = {}, overlay = false }: Params) {
       const c = chart();
       const resolved = findStudyName(name);
-      const id = await c.createStudy(resolved, !!overlay, false, inputs || {});
+      const id = await c.createStudy(
+        resolved,
+        !!overlay,
+        false,
+        (inputs || {}) as Record<string, unknown>,
+      );
       if (!id) throw new Error(`createStudy returned no id for "${resolved}".`);
       try {
         await c.waitForStudyCreated(id);
@@ -801,15 +855,20 @@ export function startDriver() {
       };
     },
 
-    async update_indicator({ id, inputs }) {
-      const s = chart().getStudyById(id);
+    async update_indicator({ id, inputs }: Params) {
+      const s = chart().getStudyById(String(id));
       if (!s) throw new Error(`No indicator with id ${id}.`);
-      s.setInputValues(Object.entries(inputs || {}).map(([k, v]) => ({ id: k, value: v })));
-      return { id, inputs: s.getInputValues() };
+      s.setInputValues?.(
+        Object.entries((inputs || {}) as Record<string, unknown>).map(([k, v]) => ({
+          id: k,
+          value: v,
+        })),
+      );
+      return { id, inputs: s.getInputValues?.() };
     },
 
-    async remove_indicator({ id }) {
-      chart().removeEntity(id);
+    async remove_indicator({ id }: Params) {
+      chart().removeEntity(String(id));
       return {
         removed: id,
         indicators: chart()
@@ -824,9 +883,9 @@ export function startDriver() {
       return { drawings: chart().getAllShapes() };
     },
 
-    async create_horizontal_line({ price, text }) {
+    async create_horizontal_line({ price, text }: Params) {
       const c = chart();
-      const t = bars().last().value[0];
+      const t = bars().last()!.value[0];
       const id = await c.createShape(
         { time: t, price: Number(price) },
         { shape: 'horizontal_line', text: text || undefined },
@@ -834,25 +893,25 @@ export function startDriver() {
       return { id, shape: 'horizontal_line', price: Number(price) };
     },
 
-    async create_vertical_line({ time }) {
+    async create_vertical_line({ time }: Params) {
       const t = snapToBar(Number(time));
       const id = await chart().createShape({ time: t }, { shape: 'vertical_line' });
       return { id, shape: 'vertical_line', time: t };
     },
 
-    async create_trend_line({ from, to, text }) {
+    async create_trend_line({ from, to, text }: Params) {
       if (!from || !to) throw new Error('from and to are required, each {time, price}');
       const id = await chart().createMultipointShape(
         [
-          { time: snapToBar(Number(from.time)), price: Number(from.price) },
-          { time: snapToBar(Number(to.time)), price: Number(to.price) },
+          { time: snapToBar(Number((from as Point).time)), price: Number((from as Point).price) },
+          { time: snapToBar(Number((to as Point).time)), price: Number((to as Point).price) },
         ],
         { shape: 'trend_line', text: text || undefined },
       );
       return { id, shape: 'trend_line' };
     },
 
-    async create_text({ time, price, text }) {
+    async create_text({ time, price, text }: Params) {
       if (!text) throw new Error('text is required');
       const id = await chart().createShape(
         { time: snapToBar(Number(time)), price: Number(price) },
@@ -861,8 +920,8 @@ export function startDriver() {
       return { id, shape: 'text' };
     },
 
-    async remove_drawing({ id }) {
-      chart().removeEntity(id);
+    async remove_drawing({ id }: Params) {
+      chart().removeEntity(String(id));
       return { removed: id, drawings: chart().getAllShapes() };
     },
 
@@ -875,7 +934,7 @@ export function startDriver() {
       return { open: true, newScript: !!newScript };
     },
 
-    async set_pine_code({ code }) {
+    async set_pine_code({ code }: Params) {
       if (!code) throw new Error('code is required');
       await api().pineEditorTestApi().setEditorText(String(code));
       return { ok: true, length: String(code).length };
@@ -899,11 +958,11 @@ export function startDriver() {
         };
       }
 
-      const result = { ok: true, id: added.id, name: added.name };
+      const result: Record<string, unknown> = { ok: true, id: added.id, name: added.name };
       try {
         const s = c.getStudyById(added.id);
-        result.hasError = !!(s.hasError && s.hasError());
-        if (s.status) result.status = s.status();
+        result.hasError = !!(s?.hasError && s.hasError());
+        if (s?.status) result.status = s.status();
       } catch (_) {
         /* ignore */
       }
@@ -912,14 +971,14 @@ export function startDriver() {
 
     // ---- strategy ---------------------------------------------------------
 
-    async get_strategy_report({ id } = {}) {
+    async get_strategy_report({ id }: Params = {}) {
       const c = chart();
-      let studyId = id;
+      let studyId = id ? String(id) : '';
       if (!studyId) {
         // Pick the study that actually carries a strategy report.
         for (const e of c.getAllStudies()) {
           try {
-            const st = c.getStudyById(e.id).study();
+            const st = c.getStudyById(e.id)?.study?.();
             if (st && typeof st.reportData === 'function' && st.reportData()) {
               studyId = e.id;
               break;
@@ -931,17 +990,18 @@ export function startDriver() {
       }
       if (!studyId) throw new Error('No strategy on the chart. Add a Pine strategy first.');
 
-      const study = c.getStudyById(studyId).study();
+      const study = c.getStudyById(studyId)?.study?.();
+      if (!study) throw new Error(`No strategy report on study ${studyId}.`);
       const data = await poll(
         () => {
-          const report = study.reportData && study.reportData();
+          const report = study.reportData?.() as StrategyReport | undefined;
           return report && report.performance ? report : null;
         },
         { attempts: 15, intervalMs: 700 },
       );
       if (!data) throw new Error('Strategy report is not populated yet.');
 
-      const p = data.performance;
+      const p = data.performance ?? {};
       return {
         id: studyId,
         currency: data.currency,
@@ -978,14 +1038,15 @@ export function startDriver() {
    * Request ids already answered, bounded so it cannot grow for the life of
    * the page.
    */
-  const answered = new Set();
+  const answered = new Set<string>();
   const ANSWERED_LIMIT = 5000;
 
-  function claimId(id) {
+  function claimId(id: string) {
     if (answered.has(id)) return false;
     if (answered.size >= ANSWERED_LIMIT) {
       // Oldest first — Set iterates in insertion order.
-      answered.delete(answered.values().next().value);
+      const oldest = answered.values().next().value;
+      if (oldest !== undefined) answered.delete(oldest);
     }
     answered.add(id);
     return true;
@@ -995,10 +1056,10 @@ export function startDriver() {
    * The one method lookup. Own properties only: `HANDLERS['constructor']`
    * must not resolve to something callable.
    */
-  function handlerFor(method) {
+  function handlerFor(method: unknown) {
     if (typeof method !== 'string') return null;
     if (!Object.prototype.hasOwnProperty.call(HANDLERS, method)) return null;
-    const handler = HANDLERS[method];
+    const handler = (HANDLERS as Record<string, unknown>)[method];
     return typeof handler === 'function' ? handler : null;
   }
 
@@ -1022,7 +1083,7 @@ export function startDriver() {
     await keyReady;
     // An unstamped or wrongly stamped request is some other script talking;
     // it gets no answer at all.
-    const expected = await wire.stamp(key, msg.id, 'req', wire.body(msg.method, msg.params));
+    const expected = await wire.stamp(key!, msg.id, 'req', wire.body(msg.method, msg.params));
     if (msg.stamp !== expected) {
       log('dropped an unauthenticated request for', msg.method);
       return;
@@ -1034,9 +1095,9 @@ export function startDriver() {
       return;
     }
 
-    const reply = async (payload) =>
+    const reply = async (payload: Record<string, unknown>) =>
       window.postMessage(
-        { source: wire.RES, id: msg.id, stamp: await wire.stamp(key, msg.id, 'res'), ...payload },
+        { source: wire.RES, id: msg.id, stamp: await wire.stamp(key!, msg.id, 'res'), ...payload },
         ORIGIN,
       );
 
@@ -1054,7 +1115,7 @@ export function startDriver() {
       reply({ ok: true, result });
     } catch (err) {
       log('✗', msg.method, err);
-      reply({ ok: false, error: (err && err.message) || String(err) });
+      reply({ ok: false, error: (err as Error)?.message || String(err) });
     }
   });
 
@@ -1065,7 +1126,7 @@ export function startDriver() {
    */
   if (debugOn()) {
     window.__tvAgent = {
-      call: (m, p) => {
+      call: (m: unknown, p?: Params) => {
         const handler = handlerFor(m);
         if (!handler) throw new Error(`Unknown method "${m}".`);
         return handler(p || {});
@@ -1073,7 +1134,7 @@ export function startDriver() {
       methods: Object.keys(HANDLERS),
       // Adopts a page the way mount does, minus the DOM, so the state machine
       // can be driven without a toolbar.
-      __adopt: (page, title) => {
+      __adopt: (page: WidgetBarPage, title?: string) => {
         preparePage(page, title || 'TVAgent');
         wb.page = page;
         watchActive();

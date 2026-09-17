@@ -370,7 +370,7 @@ function load({ layout, document: doc = makeDocument(), isAuthenticated = false,
 
   // setTimeout is a sandbox global because the driver calls it as a bare
   // identifier; only the exhausted-budget test substitutes one.
-  loadModule('entries/driver.js', {
+  loadModule('entries/driver.ts', {
     window: win,
     document: doc,
     localStorage,

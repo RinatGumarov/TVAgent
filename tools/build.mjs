@@ -8,10 +8,10 @@ const out = path.join(root, 'build/extension');
 const watch = process.argv.includes('--watch');
 
 const ENTRIES = {
-  'driver.js': 'src/entries/driver.js',
-  'bridge.js': 'src/entries/bridge.js',
-  'panel.js': 'src/entries/panel.js',
-  'service-worker.js': 'src/entries/worker.js',
+  'driver.js': 'src/entries/driver.ts',
+  'bridge.js': 'src/entries/bridge.ts',
+  'panel.js': 'src/entries/panel.ts',
+  'service-worker.js': 'src/entries/worker.ts',
 };
 
 await fs.rm(out, { recursive: true, force: true });

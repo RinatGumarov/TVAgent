@@ -69,8 +69,8 @@ function boot(flaky, chartOpts) {
 
   const main = spawn({ TradingViewApi: chart.api, user: { id: 42 } });
   const iso = spawn({});
-  loadModule('entries/driver.js', { window: main, ...stubs });
-  loadModule('entries/bridge.js', { window: iso, ...stubs });
+  loadModule('entries/driver.ts', { window: main, ...stubs });
+  loadModule('entries/bridge.ts', { window: iso, ...stubs });
 
   return { bridge: iso.TVAgentBridge, chart };
 }

@@ -41,8 +41,8 @@ async function boot() {
     document: { querySelector: () => null },
     console,
   };
-  loadModule('entries/driver.js', { window: main, ...stubs });
-  loadModule('entries/bridge.js', { window: iso, ...stubs });
+  loadModule('entries/driver.ts', { window: main, ...stubs });
+  loadModule('entries/bridge.ts', { window: iso, ...stubs });
 
   await settle();
   return { main, iso, page, bridge: iso.TVAgentBridge };
@@ -276,7 +276,7 @@ describe('a driver that never answers', async () => {
       document: {},
       console,
     };
-    loadModule('entries/bridge.js', { window: iso, ...stubs });
+    loadModule('entries/bridge.ts', { window: iso, ...stubs });
 
     let error = null;
     const call = iso.TVAgentBridge.call('probe', {}).catch((e) => (error = e.message));
