@@ -1,9 +1,10 @@
 /** The shared primitives the bridge rests on: ids, stamps and poll. */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadShared } from './helpers/load.mjs';
+import { loadModule } from './helpers/load.mjs';
 
-const { TVAgentWire: wire, TVAgentWait: wait } = loadShared('shared/wire.js', 'shared/wait.js');
+const wire = loadModule('shared/wire.js');
+const wait = loadModule('shared/wait.js');
 
 describe('ids', () => {
   const ids = new Set();

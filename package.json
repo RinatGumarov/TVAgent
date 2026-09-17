@@ -9,10 +9,14 @@
     "node": ">=22.18"
   },
   "scripts": {
+    "build": "node tools/build.mjs",
+    "build:watch": "node tools/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
     "test": "node --test 'tests/**/*.test.mjs'",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format:check": "prettier --check .",
+    "package": "npm run build && bash tools/package.sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

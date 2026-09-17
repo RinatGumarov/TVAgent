@@ -1,60 +1,43 @@
 {
   "manifest_version": 3,
-  "name": "TVAgent — AI Chart Assistant",
+  "name": "TVAgent \u2014 AI Chart Assistant",
   "version": "0.1.0",
   "description": "AI chart assistant that reads and updates TradingView charts through a fixed set of local tools.",
   "minimum_chrome_version": "111",
   "homepage_url": "https://github.com/RinatGumarov/TVAgent",
-
   "permissions": ["storage"],
-
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128-store.png"
   },
-
   "host_permissions": ["https://api.anthropic.com/*"],
-
   "optional_host_permissions": ["http://localhost/*", "http://127.0.0.1/*", "https://*/*"],
-
   "background": {
-    "service_worker": "src/background/service-worker.js"
+    "service_worker": "service-worker.js"
   },
-
   "content_scripts": [
     {
       "matches": ["https://*.tradingview.com/chart/*"],
-      "js": ["src/injected/wire.js", "src/injected/wait.js", "src/injected/driver.js"],
+      "js": ["driver.js"],
       "world": "MAIN",
       "run_at": "document_start"
     },
     {
       "matches": ["https://*.tradingview.com/chart/*"],
-      "js": ["src/shared/wire.js", "src/shared/wait.js", "src/content/bridge.js"],
+      "js": ["bridge.js"],
       "world": "ISOLATED",
       "run_at": "document_start"
     },
     {
       "matches": ["https://*.tradingview.com/chart/*"],
-      "js": [
-        "src/shared/models.js",
-        "src/shared/credentials.js",
-        "src/shared/provider-url.js",
-        "src/content/tools.js",
-        "src/content/agent.js",
-        "src/content/panel-mount.js",
-        "src/content/panel-chat.js",
-        "src/content/panel-settings.js",
-        "src/content/panel.js"
-      ],
-      "css": ["src/content/panel.css"],
+      "js": ["panel.js"],
+      "css": ["panel.css"],
       "world": "ISOLATED",
       "run_at": "document_idle"
     }
   ],
-
   "action": {
     "default_title": "Toggle TVAgent panel",
     "default_icon": {

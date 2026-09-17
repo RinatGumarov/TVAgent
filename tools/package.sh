@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
-# Builds the Chrome Web Store upload: dist/tvagent-<version>.zip
+# Zips the built extension for the Chrome Web Store: dist/tvagent-<version>.zip
+# Run tools/build.mjs first, or use `npm run package`.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-version="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$root/extension/manifest.json")"
+build="$root/build/extension"
+version="$(node -p "require('$root/package.json').version")"
 out="$root/dist/tvagent-$version.zip"
 
-# Refresh the page world's copies of the shared modules before zipping.
-"$root/tools/sync-worlds.sh" >/dev/null
+if [ ! -f "$build/manifest.json" ]; then
+  echo "no build at build/extension — run: npm run build" >&2
+  exit 1
+fi
 
 mkdir -p "$root/dist"
 rm -f "$out"
-cd "$root/extension"
+cd "$build"
 zip -r -q -X "$out" . -x '.*' -x '*/.*' -x '*.DS_Store'
 
 cd "$root"

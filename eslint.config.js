@@ -9,37 +9,15 @@ export default ts.config(
   ...ts.configs.recommended,
   prettier,
   {
-    files: ['extension/src/**/*.js', 'src/**/*.ts'],
+    files: ['src/**/*.{js,ts}'],
     languageOptions: {
       globals: { ...globals.browser, ...globals.webextensions },
     },
   },
   {
     // The worker is a service worker, not a page.
-    files: ['extension/src/background/**/*.js', 'src/background/**/*.ts'],
-    languageOptions: { globals: globals.serviceworker },
-  },
-  {
-    // Classic scripts share code through these. They go away with the move to
-    // ES modules.
-    files: ['extension/src/**/*.js'],
-    languageOptions: {
-      globals: Object.fromEntries(
-        [
-          'TVAgentWire',
-          'TVAgentWait',
-          'TVAgentModels',
-          'TVAgentCredentials',
-          'TVAgentProviderURL',
-          'TVAgentBridge',
-          'TVAgentTools',
-          'TVAgentRuntime',
-          'TVAgentChat',
-          'TVAgentSettings',
-          'TVAgentMount',
-        ].map((name) => [name, 'readonly']),
-      ),
-    },
+    files: ['src/background/**/*.{js,ts}', 'src/entries/worker.{js,ts}'],
+    languageOptions: { globals: { ...globals.serviceworker, ...globals.webextensions } },
   },
   {
     files: ['tests/**', 'tools/**', 'eslint.config.js'],

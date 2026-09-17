@@ -4,10 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSource, loadShared } from './helpers/load.mjs';
-
-const src = readSource('background/service-worker.js');
-const shared = loadShared('shared/models.js', 'shared/credentials.js', 'shared/provider-url.js');
+import { loadModule } from './helpers/load.mjs';
 
 // ---- the worker under a fake chrome ----------------------------------------
 
@@ -24,21 +21,7 @@ const chromeStub = (data) => ({
   },
 });
 
-const load = (data) =>
-  new Function(
-    'chrome',
-    'importScripts',
-    'TVAgentModels',
-    'TVAgentCredentials',
-    'TVAgentProviderURL',
-    `${src}\nreturn { settings, configError, streamAnthropic };`,
-  )(
-    chromeStub(data),
-    () => {},
-    shared.TVAgentModels,
-    shared.TVAgentCredentials,
-    shared.TVAgentProviderURL,
-  );
+const load = (data) => loadModule('background/service-worker.js', { chrome: chromeStub(data) });
 
 describe('the provider config', () => {
   it('anthropic: its own key and its own model', async () => {
@@ -165,22 +148,10 @@ async function bodyFor(model) {
     sent = JSON.parse(opts.body);
     throw new Error('stop here — the body is what is under test');
   };
-  const worker = new Function(
-    'chrome',
-    'fetch',
-    'importScripts',
-    'TVAgentModels',
-    'TVAgentCredentials',
-    'TVAgentProviderURL',
-    `${src}\nreturn { streamAnthropic };`,
-  )(
-    chromeStub({}),
-    fetchStub,
-    () => {},
-    shared.TVAgentModels,
-    shared.TVAgentCredentials,
-    shared.TVAgentProviderURL,
-  );
+  const worker = loadModule('background/service-worker.js', {
+    chrome: chromeStub({}),
+    fetch: fetchStub,
+  });
 
   await worker
     .streamAnthropic(

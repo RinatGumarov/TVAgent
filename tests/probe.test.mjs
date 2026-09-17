@@ -4,7 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluate, makeWorlds, settle, tick } from './helpers/load.mjs';
+import { loadModule, makeWorlds, settle, tick } from './helpers/load.mjs';
 
 /**
  * A chart that wakes up late: symbol() answers from the start, resolution()
@@ -69,12 +69,8 @@ function boot(flaky, chartOpts) {
 
   const main = spawn({ TradingViewApi: chart.api, user: { id: 42 } });
   const iso = spawn({});
-  evaluate('shared/wire.js', { window: main, ...stubs });
-  evaluate('shared/wait.js', { window: main, ...stubs });
-  evaluate('injected/driver.js', { window: main, ...stubs });
-  evaluate('shared/wire.js', { window: iso, ...stubs });
-  evaluate('shared/wait.js', { window: iso, ...stubs });
-  evaluate('content/bridge.js', { window: iso, ...stubs });
+  loadModule('entries/driver.js', { window: main, ...stubs });
+  loadModule('entries/bridge.js', { window: iso, ...stubs });
 
   return { bridge: iso.TVAgentBridge, chart };
 }

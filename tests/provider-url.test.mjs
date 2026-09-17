@@ -1,9 +1,9 @@
 /** The provider URL policy shared by the panel and the worker. */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadShared } from './helpers/load.mjs';
+import { loadModule } from './helpers/load.mjs';
 
-const { TVAgentProviderURL: providerURL } = loadShared('shared/provider-url.js');
+const providerURL = loadModule('shared/provider-url.js');
 
 describe('normalizing provider URLs', () => {
   const local = providerURL.parse('  http://localhost:11434/v1/  ');

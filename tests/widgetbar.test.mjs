@@ -5,9 +5,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSource, settle } from './helpers/load.mjs';
-
-const src = readSource('injected/driver.js');
+import { loadModule, settle } from './helpers/load.mjs';
 
 /**
  * An observable with the same interface as TradingView's. With no argument
@@ -370,19 +368,15 @@ function load({ layout, document: doc = makeDocument(), isAuthenticated = false,
   };
   const localStorage = { getItem: (k) => (k === 'tv-agent-debug' ? '1' : null) };
 
-  for (const rel of ['shared/wire.js', 'shared/wait.js']) {
-    new Function('globalThis', 'window', readSource(rel))(win, win);
-  }
-
-  // setTimeout is a sandbox parameter because the driver calls it as a bare
+  // setTimeout is a sandbox global because the driver calls it as a bare
   // identifier; only the exhausted-budget test substitutes one.
-  new Function('window', 'document', 'localStorage', 'performance', 'setTimeout', src)(
-    win,
-    doc,
+  loadModule('entries/driver.js', {
+    window: win,
+    document: doc,
     localStorage,
-    { now: () => 0 },
-    setTimeoutImpl || setTimeout,
-  );
+    performance: { now: () => 0 },
+    setTimeout: setTimeoutImpl || setTimeout,
+  });
   return {
     call: win.__tvAgent.call,
     adopt: win.__tvAgent.__adopt,

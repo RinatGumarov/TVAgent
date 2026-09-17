@@ -1,36 +1,109 @@
 /**
- * Runs the real extension sources under a fake window. The files are not
- * modules, so they are read from disk and evaluated with the globals they
- * expect handed in.
+ * Loads the real extension modules the way Chrome gets them: bundled. The
+ * bundle is evaluated with the globals the test hands in, and each call
+ * returns its own instance, so a module holding state does not leak from one
+ * test into the next.
  */
-import fs from 'node:fs';
+import { build, buildSync } from 'esbuild';
+import path from 'node:path';
 
-export const EXT = new URL('../../extension/src/', import.meta.url).pathname;
+const SRC = new URL('../../src/', import.meta.url).pathname;
 
-export const readSource = (rel) => fs.readFileSync(EXT + rel, 'utf8');
+/** Bundling is the slow part, and the output only depends on what went in. */
+const bundles = new Map();
 
 /**
- * Evaluates one source file with `scope`'s keys as its globals. `window`
- * doubles as `globalThis` unless the caller says otherwise.
+ * Stands in for a module the test replaces. Each export forwards to the
+ * double on `window` at call time, through a Proxy so that a plain call, a
+ * `new`, and a property read all reach it.
  */
-export function evaluate(rel, scope) {
-  const full = { globalThis: scope.window, ...scope };
+function doubleSource(globalName, names) {
+  const reach = (n) => `window[${JSON.stringify(globalName)}][${JSON.stringify(n)}]`;
+  return names
+    .map(
+      (n) => `export const ${n} = new Proxy(function () {}, {
+  get: (_t, p) => ${reach(n)}[p],
+  apply: (_t, _this, a) => ${reach(n)}(...a),
+  construct: (_t, a) => new (${reach(n)})(...a),
+});`,
+    )
+    .join('\n');
+}
+
+/** Redirects the named modules to their doubles before esbuild reads them. */
+function doublePlugin(doubles) {
+  const byPath = new Map(
+    Object.entries(doubles).map(([rel, spec]) => [path.resolve(SRC, rel), spec]),
+  );
+  return {
+    name: 'tva-doubles',
+    setup(build) {
+      build.onResolve({ filter: /.*/ }, (args) => {
+        if (!args.importer) return null;
+        const abs = path.resolve(args.resolveDir, args.path);
+        return byPath.has(abs) ? { path: abs, namespace: 'tva-double' } : null;
+      });
+      build.onLoad({ filter: /.*/, namespace: 'tva-double' }, (args) => {
+        const { globalName, names } = byPath.get(args.path);
+        return { contents: doubleSource(globalName, names), loader: 'js' };
+      });
+    },
+  };
+}
+
+const options = (rel) => ({
+  entryPoints: [SRC + rel],
+  bundle: true,
+  write: false,
+  format: 'iife',
+  globalName: '__tvaModule',
+  platform: 'browser',
+  target: 'chrome111',
+  logLevel: 'silent',
+});
+
+function bundle(rel) {
+  if (!bundles.has(rel)) bundles.set(rel, buildSync(options(rel)).outputFiles[0].text);
+  return bundles.get(rel);
+}
+
+/** Doubles need a plugin, and esbuild takes plugins only asynchronously. */
+async function bundleWith(rel, doubles) {
+  const key = rel + '|' + JSON.stringify(doubles);
+  if (!bundles.has(key)) {
+    const built = await build({ ...options(rel), plugins: [doublePlugin(doubles)] });
+    bundles.set(key, built.outputFiles[0].text);
+  }
+  return bundles.get(key);
+}
+
+function evaluateBundle(code, scope) {
+  const full = { globalThis: scope.window ?? scope.globalThis ?? globalThis, ...scope };
   const names = Object.keys(full);
-  new Function(...names, readSource(rel))(...names.map((n) => full[n]));
-  return scope.window;
+  return new Function(...names, `${code}\nreturn __tvaModule;`)(...names.map((n) => full[n]));
 }
 
 /**
- * The shared modules, evaluated into one object that stands in for the
- * worker's globalThis. importScripts does not exist under node, so the tests
- * hand them in.
+ * The module's exports, evaluated with `scope`'s keys as its globals, fresh
+ * each call so that module state does not leak between tests.
  */
-export function loadShared(...rels) {
-  // wire.js reads crypto at load, so the stand-in globalThis has to carry the
-  // real one before anything is evaluated into it.
-  const scope = { crypto: globalThis.crypto };
-  for (const rel of rels) new Function('globalThis', 'window', readSource(rel))(scope, scope);
-  return scope;
+export function loadModule(rel, scope = {}) {
+  return evaluateBundle(bundle(rel), scope);
+}
+
+/**
+ * The same, with some of the module's dependencies replaced. `doubles` maps a
+ * module path to the `window` property standing in for it, which the test has
+ * already put there.
+ */
+export async function loadModuleWith(rel, scope, doubles) {
+  const spec = Object.fromEntries(
+    Object.entries(doubles).map(([mod, globalName]) => [
+      mod,
+      { globalName, names: Object.keys(scope.window[globalName]) },
+    ]),
+  );
+  return evaluateBundle(await bundleWith(rel, spec), scope);
 }
 
 /**

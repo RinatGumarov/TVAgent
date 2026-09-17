@@ -5,11 +5,11 @@
  * the content script over an authenticated postMessage channel (see
  * shared/wire.js). Only the own methods of HANDLERS can be invoked.
  */
-(() => {
-  'use strict';
+import * as wire from '../shared/wire.js';
+import { poll } from '../shared/wait.js';
 
-  const wire = window.TVAgentWire;
-  const { poll } = window.TVAgentWait;
+/** Mints the secret, registers the handlers and announces the driver. */
+export function startDriver() {
   const ORIGIN = window.location.origin;
 
   /**
@@ -1085,4 +1085,4 @@
   window.postMessage({ source: wire.HELLO, announce: true }, ORIGIN);
 
   log('driver ready,', Object.keys(HANDLERS).length, 'methods');
-})();
+}

@@ -1,7 +1,7 @@
 /** Runs the real agent.js with the worker port and the page bridge faked. */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSource, tick } from './helpers/load.mjs';
+import { loadModule, tick } from './helpers/load.mjs';
 
 /**
  * A worker port driven by hand. `answer` hands back one assistant turn;
@@ -42,9 +42,6 @@ function setup({ capabilities = { pine: true, series: true, strategy: true }, to
   const ports = [];
   const events = [];
 
-  // The real tool list, so the permission levels are the shipped ones.
-  new Function('window', readSource('content/tools.js'))(win);
-
   win.TVAgentBridge = {
     calls: [],
     call(name, input) {
@@ -63,7 +60,9 @@ function setup({ capabilities = { pine: true, series: true, strategy: true }, to
     },
   };
 
-  new Function('window', 'chrome', readSource('content/agent.js'))(win, chrome);
+  // The real tool list comes bundled in, so the permission levels are the
+  // shipped ones.
+  const runtime = loadModule('content/agent.js', { window: win, chrome });
 
   // Confirmation is a promise resolved by hand, because the question is what
   // happens while the card is on screen.
@@ -77,7 +76,7 @@ function setup({ capabilities = { pine: true, series: true, strategy: true }, to
     onToolResult: (info) => events.push({ toolResult: info.name, ok: info.ok }),
   };
 
-  const agent = new win.TVAgentRuntime.Agent({ capabilities, handlers });
+  const agent = new runtime.Agent({ capabilities, handlers });
   return {
     agent,
     ports,

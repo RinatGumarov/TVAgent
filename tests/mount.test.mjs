@@ -2,9 +2,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDocument } from './helpers/dom.mjs';
-import { makeWindow, readSource } from './helpers/load.mjs';
-
-const src = readSource('content/panel-mount.js');
+import { makeWindow, loadModule } from './helpers/load.mjs';
 
 function makeChrome(store = {}) {
   return {
@@ -30,8 +28,7 @@ function makeMountedPage(doc) {
 
 function load({ window: win, document: doc, chrome: chr, bridge }) {
   win.TVAgentBridge = bridge;
-  new Function('window', 'document', 'chrome', src)(win, doc, chr);
-  return win.TVAgentMount;
+  return loadModule('content/panel-mount.js', { window: win, document: doc, chrome: chr });
 }
 
 describe('the native path', async () => {

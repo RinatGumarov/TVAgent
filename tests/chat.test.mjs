@@ -2,14 +2,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDocument, click, findTag, findDangerousTag, descendants } from './helpers/dom.mjs';
-import { readSource } from './helpers/load.mjs';
-
-const src = readSource('content/panel-chat.js');
+import { loadModule } from './helpers/load.mjs';
 
 function load(doc) {
   const win = {};
-  new Function('window', 'document', src)(win, doc);
-  return win.TVAgentChat;
+  return loadModule('content/panel-chat.js', { window: win, document: doc });
 }
 
 function fresh() {

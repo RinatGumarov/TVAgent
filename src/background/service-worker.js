@@ -8,7 +8,9 @@
  * blocks on the way in.
  */
 
-importScripts('/src/shared/models.js', '/src/shared/credentials.js', '/src/shared/provider-url.js');
+import * as TVAgentModels from '../shared/models.js';
+import * as TVAgentCredentials from '../shared/credentials.js';
+import * as TVAgentProviderURL from '../shared/provider-url.js';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULTS = {
@@ -25,7 +27,7 @@ const MAX_TOKENS = 32000;
  * The active provider's own key and model; each provider has its own storage
  * slot.
  */
-async function settings() {
+export async function settings() {
   const s = await chrome.storage.local.get([
     'apiKey',
     'model',
@@ -61,7 +63,7 @@ async function settings() {
 }
 
 /** What has to be in place before a turn can go out, in the user's terms. */
-function configError(cfg, { requireModel = true } = {}) {
+export function configError(cfg, { requireModel = true } = {}) {
   if (cfg.provider === 'anthropic') {
     return cfg.apiKey
       ? null
@@ -114,74 +116,77 @@ async function providerPermission(baseUrl, action) {
   throw new Error('Unknown provider-permission action.');
 }
 
-chrome.action.onClicked.addListener((tab) => {
-  if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'toggle-panel' }).catch(() => {});
-});
+/** Wires the worker to Chrome. The entry calls this once. */
+export function registerWorker() {
+  chrome.action.onClicked.addListener((tab) => {
+    if (tab?.id) chrome.tabs.sendMessage(tab.id, { type: 'toggle-panel' }).catch(() => {});
+  });
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === 'provider-permission') {
+  chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg?.type === 'provider-permission') {
+      (async () => {
+        try {
+          sendResponse(await providerPermission(msg.baseUrl, msg.action));
+        } catch (err) {
+          sendResponse({ error: err.message || String(err) });
+        }
+      })();
+      return true;
+    }
+    if (msg?.type !== 'list-models') return undefined;
     (async () => {
       try {
-        sendResponse(await providerPermission(msg.baseUrl, msg.action));
+        const cfg = await settings();
+        const problem = await networkAccessError(cfg, { requireModel: false });
+        if (problem) throw new Error(problem);
+        sendResponse({ models: await listModels(cfg) });
       } catch (err) {
         sendResponse({ error: err.message || String(err) });
       }
     })();
-    return true;
-  }
-  if (msg?.type !== 'list-models') return undefined;
-  (async () => {
-    try {
+    return true; // the reply comes later
+  });
+
+  chrome.runtime.onConnect.addListener((port) => {
+    if (port.name !== 'tvagent-llm') return;
+
+    let aborter = null;
+    let closed = false;
+    port.onDisconnect.addListener(() => {
+      closed = true;
+      aborter?.abort();
+    });
+
+    port.onMessage.addListener(async (msg) => {
+      if (msg.type !== 'run') return;
+
+      // Allocated before the first await, so a disconnect during the storage
+      // read still aborts the turn.
+      aborter = new AbortController();
+      if (closed) return;
+
       const cfg = await settings();
-      const problem = await networkAccessError(cfg, { requireModel: false });
-      if (problem) throw new Error(problem);
-      sendResponse({ models: await listModels(cfg) });
-    } catch (err) {
-      sendResponse({ error: err.message || String(err) });
-    }
-  })();
-  return true; // the reply comes later
-});
+      if (closed) return;
 
-chrome.runtime.onConnect.addListener((port) => {
-  if (port.name !== 'tvagent-llm') return;
+      const problem = await networkAccessError(cfg);
+      if (problem) {
+        port.postMessage({ type: 'error', error: problem });
+        return;
+      }
 
-  let aborter = null;
-  let closed = false;
-  port.onDisconnect.addListener(() => {
-    closed = true;
-    aborter?.abort();
+      try {
+        const message =
+          cfg.provider === 'anthropic'
+            ? await streamAnthropic(cfg, msg, port, aborter.signal)
+            : await streamOpenAI(cfg, msg, port, aborter.signal);
+        port.postMessage({ type: 'done', message });
+      } catch (err) {
+        if (err.name === 'AbortError') return;
+        port.postMessage({ type: 'error', error: err.message || String(err) });
+      }
+    });
   });
-
-  port.onMessage.addListener(async (msg) => {
-    if (msg.type !== 'run') return;
-
-    // Allocated before the first await, so a disconnect during the storage
-    // read still aborts the turn.
-    aborter = new AbortController();
-    if (closed) return;
-
-    const cfg = await settings();
-    if (closed) return;
-
-    const problem = await networkAccessError(cfg);
-    if (problem) {
-      port.postMessage({ type: 'error', error: problem });
-      return;
-    }
-
-    try {
-      const message =
-        cfg.provider === 'anthropic'
-          ? await streamAnthropic(cfg, msg, port, aborter.signal)
-          : await streamOpenAI(cfg, msg, port, aborter.signal);
-      port.postMessage({ type: 'done', message });
-    } catch (err) {
-      if (err.name === 'AbortError') return;
-      port.postMessage({ type: 'error', error: err.message || String(err) });
-    }
-  });
-});
+}
 
 /** Turns a non-2xx response into an error carrying whatever detail the server gave. */
 async function httpError(response, label) {
@@ -229,7 +234,7 @@ async function* sseEvents(response) {
 // Anthropic
 // ---------------------------------------------------------------------------
 
-async function streamAnthropic(cfg, req, port, signal) {
+export async function streamAnthropic(cfg, req, port, signal) {
   const body = {
     model: cfg.model,
     max_tokens: cfg.maxTokens,
@@ -346,7 +351,7 @@ function nonEmpty(block) {
  * The models the configured provider will answer to. `/v1/models` is part of
  * the OpenAI shape, so Ollama, Groq, Gemini and OpenRouter all serve it.
  */
-async function listModels(cfg) {
+export async function listModels(cfg) {
   // Anthropic ships a fixed list in the panel. Asking here would also mean
   // sending its key to whatever base URL happens to be stored.
   if (cfg.provider === 'anthropic') return [];

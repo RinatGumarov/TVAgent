@@ -1,10 +1,7 @@
 /** Runs listModels() from service-worker.js against a stubbed fetch. */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSource, loadShared } from './helpers/load.mjs';
-
-const src = readSource('background/service-worker.js');
-const shared = loadShared('shared/models.js', 'shared/credentials.js');
+import { loadModule } from './helpers/load.mjs';
 
 const chromeStub = {
   action: { onClicked: { addListener() {} } },
@@ -14,14 +11,7 @@ const chromeStub = {
 };
 
 const load = (fetchStub) =>
-  new Function(
-    'chrome',
-    'fetch',
-    'importScripts',
-    'TVAgentModels',
-    'TVAgentCredentials',
-    `${src}\nreturn { listModels };`,
-  )(chromeStub, fetchStub, () => {}, shared.TVAgentModels, shared.TVAgentCredentials);
+  loadModule('background/service-worker.js', { chrome: chromeStub, fetch: fetchStub });
 
 const json = (body, status = 200) => ({
   ok: status < 300,

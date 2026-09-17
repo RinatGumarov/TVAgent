@@ -6,9 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDocument, makeElement, click, fireInput, fireKeydown } from './helpers/dom.mjs';
-import { readSource } from './helpers/load.mjs';
-
-const src = readSource('content/panel.js');
+import { loadModuleWith } from './helpers/load.mjs';
 
 function makeChrome() {
   const messageListeners = [];
@@ -214,12 +212,9 @@ function flush() {
   return new Promise((r) => setTimeout(r, 0));
 }
 
-function load({ mount, settings, bridge, runtime, chat }) {
+async function load({ mount, settings, bridge, runtime, chat }) {
   const win = {};
   const doc = makeDocument();
-  // The shared model catalog, loaded ahead of panel.js as the manifest loads
-  // it.
-  new Function('globalThis', 'window', readSource('shared/models.js'))(win, win);
   win.TVAgentChat = chat || makeChatModule(doc);
   win.TVAgentMount = mount;
   win.TVAgentSettings = settings;
@@ -228,7 +223,20 @@ function load({ mount, settings, bridge, runtime, chat }) {
   const ro = makeResizeObserverStub();
   win.ResizeObserver = ro.ctor;
   const chr = makeChrome();
-  new Function('window', 'document', 'chrome', src)(win, doc, chr);
+
+  // The shell is what is under test; its collaborators are doubles. The model
+  // catalog is not one of them — panel.js reads the shipped list.
+  const panel = await loadModuleWith(
+    'content/panel.js',
+    { window: win, document: doc, chrome: chr },
+    {
+      'content/panel-chat.js': 'TVAgentChat',
+      'content/panel-mount.js': 'TVAgentMount',
+      'content/panel-settings.js': 'TVAgentSettings',
+      'content/agent.js': 'TVAgentRuntime',
+    },
+  );
+  panel.start();
   return { win, doc, chrome: chr, ro };
 }
 
@@ -244,7 +252,13 @@ async function bootedPanel(overrides = {}) {
   const bridge = overrides.bridge || makeBridgeMock(overrides.caps || caps());
   const runtime = overrides.runtime || makeRuntimeMock();
 
-  const { win, doc, chrome, ro } = load({ mount, settings, bridge, runtime, chat: overrides.chat });
+  const { win, doc, chrome, ro } = await load({
+    mount,
+    settings,
+    bridge,
+    runtime,
+    chat: overrides.chat,
+  });
   await flush();
   await flush();
   if (overrides.width !== undefined) ro.resize(overrides.width);
@@ -306,7 +320,7 @@ describe('boot: mount before build', async () => {
     const bridge = makeBridgeMock(caps());
     const runtime = makeRuntimeMock();
 
-    load({ mount, settings, bridge, runtime });
+    await load({ mount, settings, bridge, runtime });
 
     const got1 = mountCalls;
     const want1 = 1;
@@ -457,7 +471,7 @@ describe('boot: each of the four failure points shows an error rather than nothi
     const bridge = makeBridgeMock(caps());
     const runtime = makeRuntimeMock();
 
-    const { doc } = load({ mount, settings, bridge, runtime });
+    const { doc } = await load({ mount, settings, bridge, runtime });
     await flush();
     await flush();
 

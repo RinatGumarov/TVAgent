@@ -4,10 +4,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readSource, loadShared } from './helpers/load.mjs';
-
-const src = readSource('background/service-worker.js');
-const shared = loadShared('shared/models.js', 'shared/credentials.js', 'shared/provider-url.js');
+import { loadModule } from './helpers/load.mjs';
 
 const json = (body, status = 200) => ({
   ok: status < 300,
@@ -66,22 +63,10 @@ function loadWorker(data, { granted = [], grantRequests = true } = {}) {
     return json({ data: [] });
   };
 
-  new Function(
-    'chrome',
-    'fetch',
-    'importScripts',
-    'TVAgentModels',
-    'TVAgentCredentials',
-    'TVAgentProviderURL',
-    src,
-  )(
+  loadModule('background/service-worker.js', {
     chrome,
-    fetchStub,
-    () => {},
-    shared.TVAgentModels,
-    shared.TVAgentCredentials,
-    shared.TVAgentProviderURL,
-  );
+    fetch: fetchStub,
+  }).registerWorker();
 
   async function message(msg) {
     return new Promise((resolve) => {

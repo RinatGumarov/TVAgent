@@ -6,10 +6,11 @@
  * every script on the page; a message without a stamp from the handshake in
  * shared/wire.js is ignored.
  */
-window.TVAgentBridge = (() => {
-  'use strict';
+import * as wire from '../shared/wire.js';
+import { poll } from '../shared/wait.js';
 
-  const wire = window.TVAgentWire;
+/** One bridge, handshake started. The entry hands it to the panel bundle. */
+export function createBridge() {
   const ORIGIN = window.location.origin;
   const DEFAULT_TIMEOUT = 45000;
 
@@ -125,7 +126,7 @@ window.TVAgentBridge = (() => {
    */
   async function probeWhenReady(attempts = 10) {
     let last = null;
-    const ready = await window.TVAgentWait.poll(
+    const ready = await poll(
       async () => {
         try {
           last = await call('probe', {}, 4000);
@@ -141,4 +142,4 @@ window.TVAgentBridge = (() => {
   }
 
   return { call, on, probeWhenReady };
-})();
+}

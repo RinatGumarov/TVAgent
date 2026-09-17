@@ -2,9 +2,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDocument, click, textOf } from './helpers/dom.mjs';
-import { readSource } from './helpers/load.mjs';
-
-const src = readSource('content/panel-settings.js');
+import { loadModule } from './helpers/load.mjs';
 
 /**
  * get() returns only the keys in the store, like the real
@@ -56,13 +54,14 @@ function makeChrome(initial = {}, { granted = [], grantRequests = true } = {}) {
 function load(chr) {
   const win = {};
   const doc = makeDocument();
-  // The shared catalog and the credential rules load first, as the manifest
-  // loads them.
-  for (const rel of ['shared/models.js', 'shared/credentials.js', 'shared/provider-url.js']) {
-    new Function('globalThis', 'window', readSource(rel))(win, win);
-  }
-  new Function('window', 'document', 'chrome', src)(win, doc, chr);
-  return { Settings: win.TVAgentSettings, Models: win.TVAgentModels, doc };
+  // The shared catalog and the credential rules come bundled into the screen.
+  const Settings = loadModule('content/panel-settings.js', {
+    window: win,
+    document: doc,
+    chrome: chr,
+  });
+  const Models = loadModule('shared/models.js', { window: win });
+  return { Settings, Models, doc };
 }
 
 const groupsFor = (hostEl, provider) =>
