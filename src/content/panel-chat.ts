@@ -11,33 +11,47 @@ const MAX_ROWS = 300;
 /** Per tool call, in the trace. get_series_data alone returns ~300 bars. */
 const MAX_BLOB_CHARS = 2000;
 
-const esc = (s) =>
-  String(s).replace(
-    /[&<>"']/g,
-    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
-  );
+const ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+};
+
+const esc = (s: unknown) => String(s).replace(/[&<>"']/g, (c) => ESCAPES[c]);
 
 /**
  * The only markup the panel renders: fenced blocks (streamer) and inline
  * code. A model answer is prose; a full markdown renderer would be a far
  * larger surface.
  */
-const inlineCode = (text) => esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>');
+const inlineCode = (text: string) => esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>');
 
 /** Nobody reads a 40KB blob in a collapsed trace row. */
-const clip = (text) =>
+const clip = (text: string) =>
   text.length > MAX_BLOB_CHARS
     ? `${text.slice(0, MAX_BLOB_CHARS)}\n… ${text.length - MAX_BLOB_CHARS} more characters`
     : text;
 
-const asText = (value) => (typeof value === 'string' ? value : JSON.stringify(value, null, 2));
+const asText = (value: unknown) =>
+  typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 
-function create(listEl) {
-  let assistantEl = null;
-  let assistant = null; // the streaming renderer writing into assistantEl
-  let thinkingEl = null;
-  let runEl = null; // the collapsed activity row for the current run
-  const tools = new Map();
+/** Appends deltas to one element, splitting fenced blocks out as they arrive. */
+interface Streamer {
+  push(delta: unknown): void;
+  flush(): void;
+}
+
+/** Resolves one confirmation card, whoever answers it. */
+type ConfirmFinish = (allowed: boolean, word?: string) => void;
+
+function create(listEl: HTMLElement) {
+  let assistantEl: HTMLElement | null = null;
+  let assistant: Streamer | null = null; // the renderer writing into assistantEl
+  let thinkingEl: HTMLElement | null = null;
+  let runEl: HTMLDetailsElement | null = null; // the collapsed activity row
+  const tools = new Map<string, HTMLElement>();
   // Confirmation cards still waiting on the user; a run that ends has to
   // settle them.
   const openConfirms = new Set();
@@ -50,8 +64,9 @@ function create(listEl) {
    */
   function trimRows() {
     if (listEl.children.length <= MAX_ROWS) return;
-    while (listEl.children.length > MAX_ROWS) listEl.removeChild(listEl.firstChild);
-    const first = listEl.firstChild;
+    while (listEl.children.length > MAX_ROWS) listEl.removeChild(listEl.firstChild!);
+    // A text node has no className, which is why this is guarded.
+    const first = listEl.firstChild as (ChildNode & { className?: string }) | null;
     if (first && first.className && first.className.indexOf('tva-trimmed') !== -1) return;
     // Say it once, rather than letting the top of the conversation vanish
     // with no explanation.
@@ -61,7 +76,7 @@ function create(listEl) {
     listEl.insertBefore(note, first);
   }
 
-  function add(className, html) {
+  function add(className: string, html: string) {
     const el = document.createElement('div');
     el.className = className;
     if (html != null) el.innerHTML = html;
@@ -75,11 +90,11 @@ function create(listEl) {
    * Streams model text into one message element. Only the segment being
    * written can still change; the ones before it are closed nodes.
    */
-  function streamer(el) {
+  function streamer(el: HTMLElement): Streamer {
     let tail = ''; // the segment being written
     let held = ''; // a partial fence, waiting for the rest of it
     let fenced = false;
-    let node = null;
+    let node: HTMLElement | null = null;
 
     function open() {
       node = document.createElement(fenced ? 'pre' : 'span');
@@ -92,12 +107,12 @@ function create(listEl) {
         if (!tail && !fenced) return;
         open();
       }
-      if (fenced) node.firstChild.textContent = tail.replace(/^[a-zA-Z0-9_-]*\n/, '');
-      else node.innerHTML = inlineCode(tail);
+      if (fenced) node!.firstChild!.textContent = tail.replace(/^[a-zA-Z0-9_-]*\n/, '');
+      else node!.innerHTML = inlineCode(tail);
     }
 
     /** Text with no fence left in it, into the segment being written. */
-    function write(chunk) {
+    function write(chunk: string) {
       if (!chunk) return;
       tail += chunk;
       paint();
@@ -108,7 +123,7 @@ function create(listEl) {
      * one or two backticks in case the next delta completes one. Fences
      * first: "```" often arrives as its own delta.
      */
-    function consume(chunk, last) {
+    function consume(chunk: string, last: boolean) {
       let rest = chunk;
       let cut;
       while ((cut = rest.indexOf('```')) !== -1) {
@@ -130,7 +145,7 @@ function create(listEl) {
     }
 
     return {
-      push(delta) {
+      push(delta: unknown) {
         const rest = held + String(delta);
         held = '';
         consume(rest, false);
@@ -162,14 +177,15 @@ function create(listEl) {
   }
 
   function countActions() {
-    const done = runEl.querySelectorAll('.tva-call').length;
-    const label = runEl.querySelector('.tva-run-label');
-    label.textContent = done === 1 ? '1 action' : `${done} actions`;
+    const row = run();
+    const done = row.querySelectorAll('.tva-call').length;
+    const label = row.querySelector('.tva-run-label');
+    if (label) label.textContent = done === 1 ? '1 action' : `${done} actions`;
   }
 
   /** Answers every card still on screen, so nothing is left awaiting one. */
   function settleConfirms() {
-    const open = Array.from(openConfirms);
+    const open = Array.from(openConfirms) as ConfirmFinish[];
     openConfirms.clear();
     open.forEach((finish) => finish(false, 'Stopped'));
   }
@@ -184,9 +200,9 @@ function create(listEl) {
       tools.clear();
     },
 
-    notice: (text) => add('tva-msg notice', esc(text)),
-    error: (text) => add('tva-msg error', esc(text)),
-    user: (text) => add('tva-msg user', esc(text)),
+    notice: (text: unknown) => add('tva-msg notice', esc(text)),
+    error: (text: unknown) => add('tva-msg error', esc(text)),
+    user: (text: unknown) => add('tva-msg user', esc(text)),
 
     /** Called when a run starts, so the next tool call opens a fresh row. */
     startRun() {
@@ -198,14 +214,14 @@ function create(listEl) {
       settleConfirms();
       assistant?.flush();
       if (runEl) {
-        runEl.querySelector('.tva-run-mark').classList.add('done');
+        runEl.querySelector('.tva-run-mark')?.classList.add('done');
         countActions();
       }
       assistantEl = thinkingEl = runEl = null;
       assistant = null;
     },
 
-    onBlockStart(blockType) {
+    onBlockStart(blockType: string) {
       if (blockType === 'text') {
         assistant?.flush();
         assistantEl = null;
@@ -214,61 +230,62 @@ function create(listEl) {
       if (blockType === 'thinking') thinkingEl = null;
     },
 
-    onThinking(delta) {
+    onThinking(delta: string) {
       if (!thinkingEl) {
-        const body = run().querySelector('.tva-run-body');
         thinkingEl = document.createElement('div');
         thinkingEl.className = 'tva-think';
-        body.appendChild(thinkingEl);
+        run().querySelector('.tva-run-body')?.appendChild(thinkingEl);
       }
       thinkingEl.textContent += delta;
       scroll();
     },
 
-    onText(delta) {
+    onText(delta: string) {
       if (!assistantEl) {
         assistantEl = add('tva-msg assistant', '');
         assistant = streamer(assistantEl);
       }
-      assistant.push(delta);
+      assistant?.push(delta);
       scroll();
     },
 
-    onToolStart({ id, name, input }) {
+    onToolStart({ id, name, input }: { id: string; name: string; input: unknown }) {
       assistant?.flush();
       assistantEl = null;
       assistant = null;
-      const body = run().querySelector('.tva-run-body');
       const call = document.createElement('div');
       call.className = 'tva-call';
       call.innerHTML =
         `<div class="tva-call-head"><span class="tva-call-name">${esc(name)}</span>` +
         '<span class="tva-call-status pending">running…</span></div>' +
         `<pre class="tva-call-body">${esc(clip(asText(input) || ''))}</pre>`;
-      body.appendChild(call);
+      run().querySelector('.tva-run-body')?.appendChild(call);
       tools.set(id, call);
       countActions();
       scroll();
     },
 
-    onToolResult({ id, ok, result }) {
+    onToolResult({ id, ok, result }: { id: string; ok: boolean; result: unknown }) {
       const call = tools.get(id);
       if (!call) return;
       tools.delete(id);
       const status = call.querySelector('.tva-call-status');
-      status.className = 'tva-call-status ' + (ok ? 'ok' : 'err');
-      status.textContent = ok ? 'done' : 'failed';
-      call.querySelector('.tva-call-body').textContent += '\n\n→ ' + clip(asText(result) || '');
+      if (status) {
+        status.className = 'tva-call-status ' + (ok ? 'ok' : 'err');
+        status.textContent = ok ? 'done' : 'failed';
+      }
+      const body = call.querySelector('.tva-call-body');
+      if (body) body.textContent += '\n\n→ ' + clip(asText(result) || '');
       // A failure is the one thing worth unfolding without being asked.
       if (!ok && runEl) runEl.open = true;
       scroll();
     },
 
-    onConfirm({ name, input }) {
+    onConfirm({ name, input }: { name: string; input: unknown }) {
       assistant?.flush();
       assistantEl = null;
       assistant = null;
-      return new Promise((resolve) => {
+      return new Promise<boolean>((resolve) => {
         const el = document.createElement('div');
         el.className = 'tva-confirm';
         el.innerHTML =
@@ -281,7 +298,7 @@ function create(listEl) {
         trimRows();
         scroll();
 
-        const finish = (allowed, word) => {
+        const finish: ConfirmFinish = (allowed, word) => {
           openConfirms.delete(finish);
           el.querySelector('.tva-confirm-actions')?.remove();
           el.insertAdjacentHTML(
@@ -291,8 +308,8 @@ function create(listEl) {
           resolve(allowed);
         };
         openConfirms.add(finish);
-        el.querySelector('[data-yes]').addEventListener('click', () => finish(true));
-        el.querySelector('[data-no]').addEventListener('click', () => finish(false));
+        el.querySelector('[data-yes]')?.addEventListener('click', () => finish(true));
+        el.querySelector('[data-no]')?.addEventListener('click', () => finish(false));
       });
     },
   };

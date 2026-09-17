@@ -6,7 +6,29 @@
  * (not implemented). `needs` names the capability a tool depends on.
  */
 
-const TOOLS = [
+/** What a tool needs from the chart before it can be offered. */
+export type Capability = 'series' | 'studies' | 'drawings' | 'pine' | 'strategy';
+
+/**
+ * 0 read, 1 chart change, 2 persistent change (confirmation unless
+ * auto-approve is on), 3 financial (not implemented).
+ */
+export type PermissionLevel = 0 | 1 | 2 | 3;
+
+export interface Tool {
+  level: PermissionLevel;
+  name: string;
+  description: string;
+  input_schema: object;
+  needs?: Capability;
+}
+
+/** What the model is given: the wire fields only. */
+export type ToolForApi = Pick<Tool, 'name' | 'description' | 'input_schema'>;
+
+export type Capabilities = Partial<Record<Capability, boolean>>;
+
+const TOOLS: Tool[] = [
   // ---- context ---------------------------------------------------------
   {
     level: 0,
@@ -293,19 +315,19 @@ const TOOLS = [
 const byName = new Map(TOOLS.map((t) => [t.name, t]));
 
 /** The API wants only the wire fields — `level` and `needs` are ours. */
-function forApi(capabilities) {
+function forApi(capabilities: Capabilities | null | undefined): ToolForApi[] {
   return TOOLS.filter((t) => isAvailable(t, capabilities)).map(
     ({ name, description, input_schema }) => ({ name, description, input_schema }),
   );
 }
 
-function isAvailable(tool, caps) {
+function isAvailable(tool: Tool | null | undefined, caps?: Capabilities | null): boolean {
   if (!tool) return false;
   if (!caps || !tool.needs) return true;
   return !!caps[tool.needs];
 }
 
 /** The tool by that name, or null. Null means "no such tool", not "level 3". */
-const get = (name) => byName.get(name) || null;
+const get = (name: string): Tool | null => byName.get(name) || null;
 
 export { TOOLS, forApi, isAvailable, get };

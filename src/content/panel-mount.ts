@@ -6,18 +6,25 @@
  * anonymous session, which has no widget bar.
  */
 
-const bridge = window.TVAgentBridge;
+import type { Bridge } from '../shared/protocol.ts';
 
-let root = null;
-let currentMode = 'overlay';
+export type PanelMode = 'native' | 'overlay';
+
+/** The handoff from the document_start bundle; see src/types/globals.d.ts. */
+function requireBridge(): Bridge {
+  const bridge = window.TVAgentBridge;
+  if (!bridge) throw new Error('The TVAgent bridge did not start.');
+  return bridge;
+}
+
+// mount() creates it, and everything else here runs after mount().
+let root!: HTMLElement;
+let currentMode: PanelMode = 'overlay';
 let activeListenerBound = false;
 let resizerWired = false;
-const activeHandlers = [];
+const activeHandlers: Array<(active: boolean) => void> = [];
 
-/**
- * @returns {Promise<{root: HTMLElement, mode: 'native'|'overlay'}>}
- */
-async function mount() {
+async function mount(): Promise<{ root: HTMLElement; mode: PanelMode }> {
   root = document.createElement('div');
   root.id = 'tva-root';
 
@@ -35,7 +42,10 @@ async function mount() {
 /** The widget bar page element, or null if there is no widget bar to use. */
 async function nativeHost() {
   try {
-    const res = await bridge.call('widgetbar_mount', { label: 'AI', title: 'TVAgent' });
+    const res = await requireBridge().call<{ pageId: string }>('widgetbar_mount', {
+      label: 'AI',
+      title: 'TVAgent',
+    });
     const el = document.getElementById(res.pageId);
     if (!el) {
       // The driver reports success only once its page element is in the
@@ -46,13 +56,16 @@ async function nativeHost() {
     }
     return el;
   } catch (err) {
-    console.info('[TVAgent] widget bar unavailable, falling back to the overlay:', err.message);
+    console.info(
+      '[TVAgent] widget bar unavailable, falling back to the overlay:',
+      (err as Error).message,
+    );
     return null;
   }
 }
 
 /** TradingView's page becomes root's parent; width, hiding and reflow are its job. */
-function attachNative(host) {
+function attachNative(host: HTMLElement) {
   currentMode = 'native';
   root.classList.remove('tva-overlay', 'tva-hidden');
   host.appendChild(root);
@@ -76,7 +89,7 @@ function attachOverlay() {
 function bindActiveListener() {
   if (activeListenerBound) return;
   activeListenerBound = true;
-  bridge.on('widgetbar-active', ({ active }) => {
+  requireBridge().on('widgetbar-active', ({ active }) => {
     if (currentMode !== 'native') return;
     activeHandlers.forEach((fn) => fn(active));
   });
@@ -89,7 +102,7 @@ function bindActiveListener() {
  * there: a restore replays the same frozen page, so the failure is a real
  * state change rather than a race.
  */
-async function onPageShow(event) {
+async function onPageShow(event: PageTransitionEvent) {
   if (!event.persisted || currentMode !== 'native') return;
   const host = await nativeHost();
   if (host) attachNative(host);
@@ -99,7 +112,8 @@ async function onPageShow(event) {
 /** Native pages are opened by their tab; the overlay is toggled in place. */
 async function toggle() {
   if (currentMode === 'native') {
-    const { active } = await bridge.call('widgetbar_state');
+    const bridge = requireBridge();
+    const { active } = await bridge.call<{ active: boolean }>('widgetbar_state');
     await bridge.call(active ? 'widgetbar_deactivate' : 'widgetbar_activate');
     return;
   }
@@ -107,7 +121,7 @@ async function toggle() {
 }
 
 /** Fires with true/false when the panel becomes visible or hidden. */
-function onActive(handler) {
+function onActive(handler: (active: boolean) => void) {
   activeHandlers.push(handler);
 }
 
@@ -136,7 +150,7 @@ function wireResizer() {
     chrome.storage.local.set({ panelWidth: parseInt(root.style.width, 10) });
   });
 
-  chrome.storage.local.get('panelWidth').then((s) => {
+  chrome.storage.local.get('panelWidth').then((s: { panelWidth?: number }) => {
     if (s.panelWidth) root.style.width = s.panelWidth + 'px';
   });
 }

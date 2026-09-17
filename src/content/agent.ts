@@ -7,11 +7,69 @@
  * a loop that was cancelled at an await cannot keep writing.
  */
 
-import * as TVAgentTools from './tools.js';
+import * as TVAgentTools from './tools.ts';
+import type { PermissionLevel } from './tools.ts';
+import type { PartialProbeReport, ProbeReport } from '../shared/protocol.ts';
+
+/** What the panel knows about the chart the run is happening on. */
+export type AgentCapabilities = ProbeReport | PartialProbeReport;
+
+export interface ContentBlock {
+  type: string;
+  [field: string]: unknown;
+}
+
+export interface Message {
+  role: 'user' | 'assistant';
+  content: string | ContentBlock[];
+}
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+export interface ToolResultBlock extends ContentBlock {
+  type: 'tool_result';
+  tool_use_id: string;
+}
+
+/** Everything the panel plugs into a run. */
+export interface AgentHandlers {
+  autoApprove?: () => boolean;
+  onConfirm?: (call: {
+    name: string;
+    input: Record<string, unknown>;
+  }) => Promise<boolean> | boolean;
+  onDone?: (info: { stopReason?: string; cancelled?: boolean }) => void;
+  onError?: (err: Error) => void;
+  onText?: (delta: string) => void;
+  onThinking?: (delta: string) => void;
+  onBlockStart?: (blockType: string) => void;
+  onToolStart?: (info: {
+    id: string;
+    name: string;
+    input: Record<string, unknown>;
+    level: PermissionLevel;
+  }) => void;
+  onToolResult?: (info: { id: string; name: string; ok: boolean; result: unknown }) => void;
+}
+
+/** One assistant turn, as the worker hands it back. */
+export interface TurnResponse {
+  content?: ContentBlock[];
+  stop_reason?: string;
+}
+
+export interface AgentOptions {
+  capabilities: AgentCapabilities;
+  handlers?: AgentHandlers;
+}
 
 const MAX_ITERATIONS = 24;
 
-function systemPrompt(caps) {
+function systemPrompt(caps: AgentCapabilities) {
   return `You are TVAgent, an assistant embedded in TradingView. You operate the user's chart directly through tools.
 
 Current chart: ${caps.symbol || 'unknown'} on timeframe ${caps.resolution || 'unknown'}.
@@ -32,7 +90,15 @@ How to answer:
 }
 
 class Agent {
-  constructor(opts) {
+  capabilities: AgentCapabilities;
+  handlers: AgentHandlers;
+  messages: Message[];
+  running: boolean;
+  port: chrome.runtime.Port | null;
+  abortTurn: ((err?: Error) => void) | null;
+  partialResults: ToolResultBlock[] | null;
+
+  constructor(opts: AgentOptions) {
     this.capabilities = opts.capabilities;
     this.handlers = opts.handlers || {};
     this.messages = [];
@@ -48,7 +114,7 @@ class Agent {
    */
   #run = 0;
 
-  #stale(run) {
+  #stale(run: number) {
     return run !== this.#run;
   }
 
@@ -83,7 +149,7 @@ class Agent {
     const last = this.messages[this.messages.length - 1];
     if (!last || last.role !== 'assistant' || !Array.isArray(last.content)) return;
 
-    const calls = last.content.filter((b) => b.type === 'tool_use');
+    const calls = last.content.filter((b): b is ToolCall & ContentBlock => b.type === 'tool_use');
     if (calls.length === 0) return;
 
     // Tools that finished before the stop keep their real result; the rest
@@ -114,7 +180,7 @@ class Agent {
     this.partialResults = null;
   }
 
-  async send(userText) {
+  async send(userText: string) {
     if (this.running) return;
     const run = ++this.#run;
     this.running = true;
@@ -122,7 +188,7 @@ class Agent {
     await this.#loop(run);
   }
 
-  async #loop(run) {
+  async #loop(run: number) {
     try {
       for (let i = 0; i < MAX_ITERATIONS; i++) {
         if (this.#stale(run)) return;
@@ -131,7 +197,7 @@ class Agent {
         if (this.#stale(run)) return;
 
         const content = response.content || [];
-        const toolUses = content.filter((b) => b.type === 'tool_use');
+        const toolUses = content.filter((b): b is ToolCall & ContentBlock => b.type === 'tool_use');
 
         // The API rejects an assistant turn with empty content, so the run
         // ends here instead of recording one.
@@ -147,7 +213,7 @@ class Agent {
           return;
         }
 
-        const results = [];
+        const results: ToolResultBlock[] = [];
         this.partialResults = results;
         for (const call of toolUses) {
           if (this.#stale(run)) return;
@@ -166,7 +232,7 @@ class Agent {
         ),
       );
     } catch (err) {
-      if (!this.#stale(run)) this.handlers.onError?.(err);
+      if (!this.#stale(run)) this.handlers.onError?.(err as Error);
     } finally {
       // Only for the current run: a cancel()+send() pair may already have
       // started a new loop.
@@ -178,13 +244,13 @@ class Agent {
   }
 
   /** One model turn, streamed from the background worker. */
-  #turn() {
-    return new Promise((resolve, reject) => {
+  #turn(): Promise<TurnResponse> {
+    return new Promise<TurnResponse>((resolve, reject) => {
       const port = chrome.runtime.connect({ name: 'tvagent-llm' });
       this.port = port;
       this.abortTurn = reject;
 
-      const settle = (fn) => {
+      const settle = (fn: (value?: never) => void) => {
         try {
           port.disconnect();
         } catch (_) {
@@ -234,12 +300,12 @@ class Agent {
   }
 
   /** An answer for a tool that will not run, in the shape the API expects. */
-  #refuse(call, message) {
+  #refuse(call: ToolCall, message: string): ToolResultBlock {
     this.handlers.onToolResult?.({ id: call.id, name: call.name, ok: false, result: message });
     return { type: 'tool_result', tool_use_id: call.id, content: message, is_error: true };
   }
 
-  async #runTool(call, run) {
+  async #runTool(call: ToolCall, run: number): Promise<ToolResultBlock> {
     const tools = TVAgentTools;
     const tool = tools.get(call.name);
     const level = tool ? tool.level : 3;
@@ -281,11 +347,13 @@ class Agent {
     }
 
     try {
-      const result = await window.TVAgentBridge.call(call.name, call.input);
+      const bridge = window.TVAgentBridge;
+      if (!bridge) throw new Error('The TVAgent bridge did not start.');
+      const result = await bridge.call(call.name, call.input);
       this.handlers.onToolResult?.({ id: call.id, name: call.name, ok: true, result });
       return { type: 'tool_result', tool_use_id: call.id, content: JSON.stringify(result) };
     } catch (err) {
-      const message = err?.message || String(err);
+      const message = (err as Error)?.message || String(err);
       this.handlers.onToolResult?.({ id: call.id, name: call.name, ok: false, result: message });
       return {
         type: 'tool_result',

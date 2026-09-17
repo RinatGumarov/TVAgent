@@ -3,13 +3,16 @@
  *
  * The chrome around the conversation: header, context row, empty state and
  * composer. The conversation is panel-chat.js and the settings screen is
- * panel-settings.js; this file wires them to the agent.
+ * panel-settings.ts; this file wires them to the agent.
  */
-import * as TVAgentChat from './panel-chat.js';
-import * as TVAgentMount from './panel-mount.js';
-import * as TVAgentSettings from './panel-settings.js';
-import * as TVAgentRuntime from './agent.js';
+import * as TVAgentChat from './panel-chat.ts';
+import * as TVAgentMount from './panel-mount.ts';
+import * as TVAgentSettings from './panel-settings.ts';
+import * as TVAgentRuntime from './agent.ts';
 import * as TVAgentModels from '../shared/models.ts';
+import type { AgentCapabilities } from './agent.ts';
+import type { Bridge, ProbeReport } from '../shared/protocol.ts';
+import type { SettingsSelection } from './panel-settings.ts';
 
 const SUGGESTIONS = [
   'What am I looking at?',
@@ -26,16 +29,43 @@ const esc = TVAgentChat.esc;
  */
 const NARROW_WIDTH = 320;
 
-let root, chat, settings, listEl, settingsEl, emptyEl, inputEl, sendBtn;
-let contextEl, statusEl, modelChipEl, ctxChipEl, ctxLabelEl, ctxPopEl;
-let agent = null;
-let capabilities = null;
+// build() fills these in, and everything else here runs after build().
+let root!: HTMLElement;
+let chat: ReturnType<typeof TVAgentChat.create> | null = null;
+let settings: ReturnType<typeof TVAgentSettings.create> | null = null;
+let listEl!: HTMLElement;
+let settingsEl!: HTMLElement;
+let emptyEl!: HTMLElement;
+let inputEl!: HTMLTextAreaElement;
+let sendBtn!: HTMLButtonElement;
+let contextEl!: HTMLElement;
+let statusEl!: HTMLElement;
+let modelChipEl!: HTMLElement;
+let ctxChipEl!: HTMLElement;
+let ctxLabelEl!: HTMLElement;
+let ctxPopEl!: HTMLElement;
+let agent: InstanceType<typeof TVAgentRuntime.Agent> | null = null;
+let capabilities: AgentCapabilities | null = null;
 let busy = false;
 let narrow = false;
 
+/** The handoff from the document_start bundle; see src/types/globals.d.ts. */
+function requireBridge(): Bridge {
+  const bridge = window.TVAgentBridge;
+  if (!bridge) throw new Error('The TVAgent bridge did not start.');
+  return bridge;
+}
+
+/** An element the panel just wrote. Missing means the markup is wrong. */
+function need<T extends HTMLElement = HTMLElement>(sel: string): T {
+  const el = root.querySelector<T>(sel);
+  if (!el) throw new Error(`TVAgent panel is missing ${sel}.`);
+  return el;
+}
+
 // ---------------------------------------------------------------- markup
 
-function build(mountRoot) {
+function build(mountRoot: HTMLElement) {
   root = mountRoot;
   // Append rather than assign: the overlay resizer is already a child, and
   // assigning innerHTML would drop it.
@@ -88,21 +118,21 @@ function build(mountRoot) {
     `,
   );
 
-  listEl = root.querySelector('#tva-list');
-  settingsEl = root.querySelector('#tva-settings');
-  emptyEl = root.querySelector('#tva-empty');
-  inputEl = root.querySelector('#tva-input');
-  sendBtn = root.querySelector('#tva-send');
-  contextEl = root.querySelector('#tva-where');
-  statusEl = root.querySelector('#tva-status');
-  modelChipEl = root.querySelector('#tva-model-chip');
-  ctxChipEl = root.querySelector('#tva-in-context');
-  ctxLabelEl = root.querySelector('#tva-in-context-label');
-  ctxPopEl = root.querySelector('#tva-ctx-pop');
+  listEl = need('#tva-list');
+  settingsEl = need('#tva-settings');
+  emptyEl = need('#tva-empty');
+  inputEl = need<HTMLTextAreaElement>('#tva-input');
+  sendBtn = need<HTMLButtonElement>('#tva-send');
+  contextEl = need('#tva-where');
+  statusEl = need('#tva-status');
+  modelChipEl = need('#tva-model-chip');
+  ctxChipEl = need('#tva-in-context');
+  ctxLabelEl = need('#tva-in-context-label');
+  ctxPopEl = need('#tva-ctx-pop');
 
   chat = TVAgentChat.create(listEl);
 
-  const sugEl = root.querySelector('#tva-suggestions');
+  const sugEl = need('#tva-suggestions');
   SUGGESTIONS.forEach((text) => {
     const card = document.createElement('button');
     card.className = 'tva-suggestion';
@@ -113,17 +143,17 @@ function build(mountRoot) {
     sugEl.appendChild(card);
   });
 
-  root.querySelector('#tva-new').addEventListener('click', () => {
+  need('#tva-new').addEventListener('click', () => {
     // reset() ends a run in flight first; clearing the list before that
     // would let it write into the fresh chat.
     agent?.reset();
     if (busy) endRun('ok');
-    chat.clear();
+    chat!.clear();
     showScreen('chat');
     setEmpty(true);
   });
-  root.querySelector('#tva-gear').addEventListener('click', () => toggleSettings());
-  root.querySelector('#tva-close').addEventListener('click', () => TVAgentMount.toggle());
+  need('#tva-gear').addEventListener('click', () => toggleSettings());
+  need('#tva-close').addEventListener('click', () => TVAgentMount.toggle());
   modelChipEl.addEventListener('click', () => toggleSettings(true));
   ctxChipEl.addEventListener('click', toggleContext);
   watchWidth();
@@ -144,26 +174,27 @@ function build(mountRoot) {
 
 // ---------------------------------------------------------------- screens
 
-function showScreen(which) {
+function showScreen(which: 'chat' | 'settings') {
   closeContext();
   settingsEl.classList.toggle('tva-hidden', which !== 'settings');
   listEl.classList.toggle('tva-hidden', which === 'settings');
   emptyEl.classList.toggle('tva-hidden', which === 'settings' || !isEmpty());
-  root.querySelector('.tva-composer').classList.toggle('tva-hidden', which === 'settings');
+  need('.tva-composer').classList.toggle('tva-hidden', which === 'settings');
 }
 
-function toggleSettings(force) {
+function toggleSettings(force?: boolean) {
   const opening = force === true || settingsEl.classList.contains('tva-hidden');
   showScreen(opening ? 'settings' : 'chat');
-  if (opening) settings.refresh();
+  if (opening) settings!.refresh();
 }
 
 const isEmpty = () => listEl.children.length === 0;
-const setEmpty = (empty) => emptyEl.classList.toggle('tva-hidden', !empty);
+const setEmpty = (empty: boolean) => emptyEl.classList.toggle('tva-hidden', !empty);
 
-function setStatus(kind, text) {
+function setStatus(kind: string, text: string) {
   statusEl.className = 'tva-status ' + kind;
-  statusEl.querySelector('span').textContent = text;
+  const word = statusEl.querySelector('span');
+  if (word) word.textContent = text;
   // Narrow hides the word and leaves only the dot — the title is where the
   // word goes, so hovering still answers "connected to what, exactly?".
   statusEl.title = text;
@@ -173,7 +204,7 @@ function setStatus(kind, text) {
  * Locale-aware grouping; two decimals, widening to six under $1 so a low
  * price does not round to 0.00.
  */
-function formatPrice(price) {
+function formatPrice(price: number | null | undefined) {
   if (price == null || !isFinite(price)) return '';
   return new Intl.NumberFormat(undefined, {
     minimumFractionDigits: 2,
@@ -186,7 +217,7 @@ function formatPrice(price) {
  * writes them: 1m, 90m, 4h, 1D, 1W, 1M. Anything unrecognised passes
  * through untouched.
  */
-function formatResolution(res) {
+function formatResolution(res: string | null | undefined) {
   if (res == null || res === '') return '';
   const s = String(res).toUpperCase();
 
@@ -208,7 +239,7 @@ function formatResolution(res) {
 
 /** "BINGX:BTCUSDT.P · 4h · 64,446.70", or "no chart" when nothing is bound. */
 function contextLine() {
-  const caps = capabilities || {};
+  const caps: Partial<ProbeReport> = capabilities || {};
   return caps.symbol
     ? [caps.symbol, formatResolution(caps.resolution), formatPrice(caps.price)]
         .filter(Boolean)
@@ -217,16 +248,16 @@ function contextLine() {
 }
 
 function setContext() {
-  const caps = capabilities || {};
+  const caps: Partial<ProbeReport> = capabilities || {};
   const where = contextLine();
   contextEl.textContent = where;
   // The row is one line and truncates; the title is the rest of it.
   contextEl.title = where;
 
   ctxChipEl.classList.toggle('tva-hidden', !caps.symbol);
-  root.querySelector('#tva-ctx-symbol').textContent = caps.symbol || '—';
-  root.querySelector('#tva-ctx-resolution').textContent = formatResolution(caps.resolution) || '—';
-  root.querySelector('#tva-ctx-price').textContent = formatPrice(caps.price) || '—';
+  need('#tva-ctx-symbol').textContent = caps.symbol || '—';
+  need('#tva-ctx-resolution').textContent = formatResolution(caps.resolution) || '—';
+  need('#tva-ctx-price').textContent = formatPrice(caps.price) || '—';
   setContextChip();
 }
 
@@ -235,11 +266,13 @@ function setContext() {
  * and the rest moves into the popover.
  */
 function setContextChip() {
-  const caps = capabilities || {};
+  const caps: Partial<ProbeReport> = capabilities || {};
   if (!caps.symbol) return;
   // Symbol and timeframe only: the price does not travel with the message.
   const bound = [caps.symbol, formatResolution(caps.resolution)].filter(Boolean).join(' · ');
-  ctxLabelEl.textContent = narrow ? caps.symbol.split(':').pop() : `${bound} in context`;
+  ctxLabelEl.textContent = narrow
+    ? (caps.symbol.split(':').pop() ?? caps.symbol)
+    : `${bound} in context`;
   ctxChipEl.title = contextLine();
 }
 
@@ -271,12 +304,13 @@ function closeContext() {
   document.removeEventListener('keydown', onDocumentKey, true);
 }
 
-function onDocumentClick(e) {
-  if (ctxPopEl.contains(e.target) || ctxChipEl.contains(e.target)) return;
+function onDocumentClick(e: MouseEvent) {
+  const target = e.target as Node | null;
+  if (ctxPopEl.contains(target) || ctxChipEl.contains(target)) return;
   closeContext();
 }
 
-function onDocumentKey(e) {
+function onDocumentKey(e: KeyboardEvent) {
   if (e.key === 'Escape') closeContext();
 }
 
@@ -294,7 +328,7 @@ function watchWidth() {
   }).observe(root);
 }
 
-function setNarrow(next) {
+function setNarrow(next: boolean) {
   if (next === narrow) return;
   narrow = next;
   root.classList.toggle('tva-narrow', narrow);
@@ -305,29 +339,29 @@ function setNarrow(next) {
 }
 
 /** Same shape as the "no chart" branch below, reused by the boot-failure paths. */
-function showError(statusText, message) {
+function showError(statusText: string, message: string) {
   setStatus('err', statusText);
   setEmpty(false);
-  chat.error(message);
+  chat!.error(message);
 }
 
 // ---------------------------------------------------------------- chat
 
-function submit(text) {
+function submit(text: string) {
   const trimmed = String(text).trim();
   if (!trimmed || !agent || busy) return;
   // The settings screen can be closed with the gear button, so the gate is
   // enforced here too.
-  if (settings?.isReady && !settings.isReady()) {
+  if (settings?.isReady && !settings!.isReady()) {
     showScreen('settings');
-    settings.refresh();
+    settings!.refresh();
     return;
   }
   inputEl.value = '';
   inputEl.style.height = 'auto';
   // showScreen derives the empty state from the list, so the message has to
   // land first.
-  chat.user(trimmed);
+  chat!.user(trimmed);
   showScreen('chat');
   startRun();
   agent.send(trimmed);
@@ -335,7 +369,7 @@ function submit(text) {
 
 function startRun() {
   busy = true;
-  chat.startRun();
+  chat!.startRun();
   sendBtn.classList.add('stop');
   sendBtn.innerHTML = '&#9632;';
   sendBtn.disabled = false;
@@ -343,9 +377,9 @@ function startRun() {
   setStatus('warn', 'working…');
 }
 
-function endRun(status) {
+function endRun(status: 'ok' | 'err') {
   busy = false;
-  chat.endRun();
+  chat!.endRun();
   sendBtn.classList.remove('stop');
   sendBtn.innerHTML = '&#8593;';
   sendBtn.disabled = !inputEl.value.trim();
@@ -355,16 +389,16 @@ function endRun(status) {
 
 function handlers() {
   return {
-    autoApprove: () => settings.autoApprove(),
-    onBlockStart: chat.onBlockStart,
-    onThinking: chat.onThinking,
-    onText: chat.onText,
-    onToolStart: chat.onToolStart,
-    onToolResult: chat.onToolResult,
-    onConfirm: chat.onConfirm,
+    autoApprove: () => settings!.autoApprove(),
+    onBlockStart: chat!.onBlockStart,
+    onThinking: chat!.onThinking,
+    onText: chat!.onText,
+    onToolStart: chat!.onToolStart,
+    onToolResult: chat!.onToolResult,
+    onConfirm: chat!.onConfirm,
     onDone: () => endRun('ok'),
-    onError(err) {
-      chat.error(err?.message || String(err));
+    onError(err: Error) {
+      chat!.error((err as Error)?.message || String(err));
       endRun('err');
     },
   };
@@ -373,7 +407,8 @@ function handlers() {
 // ---------------------------------------------------------------- boot
 
 async function boot() {
-  let mountRoot, mode;
+  let mountRoot: HTMLElement;
+  let mode: string;
   try {
     ({ root: mountRoot, mode } = await TVAgentMount.mount());
   } catch (err) {
@@ -387,17 +422,17 @@ async function boot() {
 
   try {
     settings = TVAgentSettings.create(settingsEl, {
-      onChange: ({ provider, model }) => {
+      onChange: ({ provider, model }: SettingsSelection) => {
         modelChipEl.textContent =
           provider === 'anthropic' ? TVAgentModels.chip(model) : model || 'Pick a model';
       },
     });
 
     // The panel is only useful once it has been told what to call.
-    const configured = await settings.ready;
+    const configured = await settings!.ready;
     if (!configured) toggleSettings(true);
   } catch (err) {
-    showError('error', 'TVAgent failed to start: ' + (err?.message || String(err)));
+    showError('error', 'TVAgent failed to start: ' + ((err as Error)?.message || String(err)));
     return;
   }
 
@@ -409,9 +444,9 @@ async function boot() {
 
   setStatus('warn', 'connecting…');
   try {
-    capabilities = await window.TVAgentBridge.probeWhenReady();
+    capabilities = await requireBridge().probeWhenReady();
   } catch (err) {
-    showError('error', 'TVAgent failed to start: ' + (err?.message || String(err)));
+    showError('error', 'TVAgent failed to start: ' + ((err as Error)?.message || String(err)));
     return;
   }
   setContext();
@@ -431,7 +466,7 @@ async function boot() {
   );
   (capabilities.warnings || []).forEach((w) => {
     setEmpty(false);
-    chat.notice('⚠ ' + w);
+    chat!.notice('⚠ ' + w);
   });
 
   agent = new TVAgentRuntime.Agent({ capabilities, handlers: handlers() });
@@ -444,7 +479,7 @@ async function boot() {
  * object and reads it on every turn.
  */
 function watchChart() {
-  window.TVAgentBridge.on('chart-changed', (report) => {
+  requireBridge().on('chart-changed', (report) => {
     if (!report || !capabilities) return;
     // price is absent, not null, until the new symbol's bars load; clear it
     // so the old one does not linger.
@@ -461,10 +496,10 @@ function watchChart() {
 }
 
 /** Shown when mount() itself fails and there is no #tva-root to write into. */
-function showFatalMountError(err) {
+function showFatalMountError(err: unknown) {
   const el = document.createElement('div');
   el.id = 'tva-boot-error';
-  el.textContent = 'TVAgent failed to start: ' + (err?.message || String(err));
+  el.textContent = 'TVAgent failed to start: ' + ((err as Error)?.message || String(err));
   el.style.cssText =
     'position:fixed;bottom:16px;right:16px;max-width:320px;padding:10px 14px;' +
     'background:#20242b;color:#ff6b6b;border:1px solid #ff6b6b;border-radius:8px;' +
@@ -476,7 +511,8 @@ function showFatalMountError(err) {
 export function start() {
   return boot().catch((err) => {
     console.error('[TVAgent] boot failed:', err);
-    if (chat) showError('error', 'TVAgent failed to start: ' + (err?.message || String(err)));
+    if (chat)
+      showError('error', 'TVAgent failed to start: ' + ((err as Error)?.message || String(err)));
     else showFatalMountError(err);
   });
 }

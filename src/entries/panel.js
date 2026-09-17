@@ -1,5 +1,5 @@
 /** ISOLATED world, document_idle. */
-import { start } from '../content/panel.js';
+import { start } from '../content/panel.ts';
 import { toggle } from '../content/panel-mount.js';
 
 if (!window.__tvAgentPanelLoaded) {

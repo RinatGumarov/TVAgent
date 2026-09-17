@@ -227,13 +227,13 @@ async function load({ mount, settings, bridge, runtime, chat }) {
   // The shell is what is under test; its collaborators are doubles. The model
   // catalog is not one of them — panel.js reads the shipped list.
   const panel = await loadModuleWith(
-    'content/panel.js',
+    'content/panel.ts',
     { window: win, document: doc, chrome: chr },
     {
-      'content/panel-chat.js': 'TVAgentChat',
-      'content/panel-mount.js': 'TVAgentMount',
-      'content/panel-settings.js': 'TVAgentSettings',
-      'content/agent.js': 'TVAgentRuntime',
+      'content/panel-chat.ts': 'TVAgentChat',
+      'content/panel-mount.ts': 'TVAgentMount',
+      'content/panel-settings.ts': 'TVAgentSettings',
+      'content/agent.ts': 'TVAgentRuntime',
     },
   );
   panel.start();

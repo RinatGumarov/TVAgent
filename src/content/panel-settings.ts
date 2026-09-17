@@ -9,6 +9,43 @@
 import * as TVAgentModels from '../shared/models.ts';
 import * as TVAgentCredentials from '../shared/credentials.ts';
 import * as TVAgentProviderURL from '../shared/provider-url.ts';
+import type { StoredCredentials } from '../shared/credentials.ts';
+
+/** What the screen reads out of chrome.storage.local. */
+export interface StoredSettings extends StoredCredentials {
+  baseUrl?: string;
+  effort?: string;
+  autoApprove?: boolean;
+  dataDisclosureAccepted?: boolean;
+}
+
+/** One entry from the provider's model list. `tools` is null when unknown. */
+interface ListedModel {
+  id: string;
+  tools: boolean | null;
+}
+
+interface ModelsReply {
+  models?: ListedModel[];
+  error?: string;
+}
+
+/** What the panel is told after every change. */
+export interface SettingsSelection {
+  provider: string;
+  model: string;
+  effort: string;
+}
+
+/** Everything the screen keeps, including what the panel is not told. */
+interface SettingsState extends SettingsSelection {
+  accepted: boolean;
+  providerAllowed: boolean;
+  providerBaseUrl: string | null;
+}
+
+/** The segmented controls, keyed as their data-seg attribute spells them. */
+type SegmentKey = 'provider' | 'model' | 'effort';
 
 const KEYS = [
   'apiKey',
@@ -42,7 +79,7 @@ const PROVIDERS = [
  * input lives in this closure. Custom properties still inherit through, so
  * it is painted in TradingView's tokens.
  */
-function secretField(host, { placeholder }) {
+function secretField(host: HTMLElement, { placeholder }: { placeholder: string }) {
   const shadow = host.attachShadow({ mode: 'closed' });
   shadow.innerHTML = `
       <style>
@@ -62,7 +99,7 @@ function secretField(host, { placeholder }) {
       </style>
       <input type="password" autocomplete="off" spellcheck="false">
     `;
-  const input = shadow.querySelector('input');
+  const input = shadow.querySelector('input')!;
   input.placeholder = placeholder;
   return {
     get value() {
@@ -71,7 +108,7 @@ function secretField(host, { placeholder }) {
     set value(v) {
       input.value = v || '';
     },
-    onChange: (fn) => input.addEventListener('change', fn),
+    onChange: (fn: EventListener) => input.addEventListener('change', fn),
   };
 }
 
@@ -79,7 +116,7 @@ function secretField(host, { placeholder }) {
  * Moves a profile off the old shared key/model slot; the rules live in
  * shared/credentials.js because the worker reads the same way.
  */
-function migrate(s) {
+function migrate(s: StoredSettings): StoredSettings {
   const slots = TVAgentCredentials.split(s);
   if (!slots.changed) return s;
   const moved = {
@@ -92,7 +129,7 @@ function migrate(s) {
   return { ...s, ...moved };
 }
 
-function segmented(name, options) {
+function segmented(name: string, options: Array<{ id?: string; value?: string; label: string }>) {
   return (
     `<div class="tva-seg" data-seg="${name}">` +
     options
@@ -102,7 +139,7 @@ function segmented(name, options) {
   );
 }
 
-function create(hostEl, { onChange }) {
+function create(hostEl: HTMLElement, { onChange }: { onChange: (s: SettingsSelection) => void }) {
   hostEl.innerHTML = `
       <section class="tva-disclosure" id="tva-disclosure">
         <h2>Before you send chart data</h2>
@@ -169,19 +206,23 @@ function create(hostEl, { onChange }) {
       </div>
     `;
 
-  const q = (sel) => hostEl.querySelector(sel);
+  const q = <T extends HTMLElement = HTMLElement>(sel: string): T => {
+    const el = hostEl.querySelector<T>(sel);
+    if (!el) throw new Error(`TVAgent settings is missing ${sel}.`);
+    return el;
+  };
   const keyEl = secretField(q('#tva-key'), { placeholder: 'sk-ant-...' });
   const key2El = secretField(q('#tva-key2'), { placeholder: 'leave empty for Ollama' });
-  const baseEl = q('#tva-base');
+  const baseEl = q<HTMLInputElement>('#tva-base');
   const baseHintEl = q('#tva-base-hint');
   const accessEl = q('#tva-provider-access');
-  const model2El = q('#tva-model2');
-  const autoEl = q('#tva-auto');
-  const disclosureEl = q('#tva-disclosure-accept');
+  const model2El = q<HTMLInputElement>('#tva-model2');
+  const autoEl = q<HTMLInputElement>('#tva-auto');
+  const disclosureEl = q<HTMLInputElement>('#tva-disclosure-accept');
   const modelsEl = q('#tva-models');
   const hintEl = q('#tva-model-hint');
 
-  const state = {
+  const state: SettingsState = {
     provider: 'anthropic',
     model: TVAgentModels.DEFAULT_MODEL,
     effort: 'high',
@@ -191,20 +232,20 @@ function create(hostEl, { onChange }) {
   };
 
   function paintSegments() {
-    hostEl.querySelectorAll('.tva-seg').forEach((seg) => {
-      const value = state[seg.dataset.seg];
+    hostEl.querySelectorAll<HTMLElement>('.tva-seg').forEach((seg) => {
+      const value = state[seg.dataset.seg as SegmentKey];
       seg
         .querySelectorAll('button')
         .forEach((b) => b.classList.toggle('on', b.dataset.value === value));
     });
-    hostEl.querySelectorAll('[data-for]').forEach((el) => {
+    hostEl.querySelectorAll<HTMLElement>('[data-for]').forEach((el) => {
       el.classList.toggle('tva-hidden', el.dataset.for !== state.provider);
     });
     accessEl.classList.toggle('tva-hidden', state.provider !== 'openai' || state.providerAllowed);
     onChange(current());
   }
 
-  function current() {
+  function current(): SettingsSelection {
     return {
       provider: state.provider,
       model: state.provider === 'anthropic' ? state.model : model2El.value.trim(),
@@ -223,12 +264,12 @@ function create(hostEl, { onChange }) {
       TVAgentProviderURL.parse(baseEl.value);
       return true;
     } catch (err) {
-      if (showError) baseHintEl.textContent = err.message || String(err);
+      if (showError) baseHintEl.textContent = (err as Error).message || String(err);
       return false;
     }
   }
 
-  async function providerPermission(request) {
+  async function providerPermission(request: boolean) {
     if (state.provider !== 'openai') {
       state.providerAllowed = true;
       paintSegments();
@@ -240,7 +281,7 @@ function create(hostEl, { onChange }) {
       parsed = TVAgentProviderURL.parse(baseEl.value);
     } catch (err) {
       state.providerAllowed = false;
-      baseHintEl.textContent = err.message || String(err);
+      baseHintEl.textContent = (err as Error).message || String(err);
       paintSegments();
       return false;
     }
@@ -257,7 +298,7 @@ function create(hostEl, { onChange }) {
     } catch (err) {
       state.providerAllowed = false;
       baseHintEl.textContent = request
-        ? `Chrome could not grant provider access: ${err.message || String(err)}`
+        ? `Chrome could not grant provider access: ${(err as Error).message || String(err)}`
         : 'Allow access to this provider before sending chart data.';
       paintSegments();
       return false;
@@ -269,7 +310,7 @@ function create(hostEl, { onChange }) {
     return state.providerAllowed;
   }
 
-  async function revokeProviderPermission(baseUrl) {
+  async function revokeProviderPermission(baseUrl: string | null) {
     if (!baseUrl) return false;
     try {
       const reply = await chrome.runtime.sendMessage({
@@ -285,13 +326,13 @@ function create(hostEl, { onChange }) {
     }
   }
 
-  hostEl.querySelectorAll('.tva-seg').forEach((seg) => {
+  hostEl.querySelectorAll<HTMLElement>('.tva-seg').forEach((seg) => {
     seg.addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-value]');
+      const btn = (e.target as Element | null)?.closest<HTMLElement>('button[data-value]');
       if (!btn) return;
-      const field = seg.dataset.seg;
-      state[field] = btn.dataset.value;
-      const stored =
+      const field = seg.dataset.seg as SegmentKey;
+      state[field] = btn.dataset.value ?? '';
+      const stored: Record<string, string> =
         field === 'provider'
           ? { provider: state.provider }
           : field === 'model'
@@ -323,7 +364,7 @@ function create(hostEl, { onChange }) {
       parsed = TVAgentProviderURL.parse(baseEl.value);
     } catch (err) {
       state.providerAllowed = false;
-      baseHintEl.textContent = err.message || String(err);
+      baseHintEl.textContent = (err as Error).message || String(err);
       paintSegments();
       return;
     }
@@ -354,13 +395,13 @@ function create(hostEl, { onChange }) {
    * Fills the model list from the provider itself. The list belongs to a base
    * URL, so it is fetched once per URL and again when that URL changes.
    */
-  let listedFor = null;
+  let listedFor: string | null = null;
   async function loadModels() {
     let parsed;
     try {
       parsed = TVAgentProviderURL.parse(baseEl.value);
     } catch (err) {
-      baseHintEl.textContent = err.message || String(err);
+      baseHintEl.textContent = (err as Error).message || String(err);
       return;
     }
     const url = parsed.baseUrl;
@@ -372,15 +413,15 @@ function create(hostEl, { onChange }) {
     listedFor = url;
 
     hintEl.textContent = 'Loading models…';
-    let reply;
+    let reply: ModelsReply;
     try {
       reply = await chrome.runtime.sendMessage({ type: 'list-models' });
     } catch (err) {
-      reply = { error: err.message || String(err) };
+      reply = { error: (err as Error).message || String(err) };
     }
     if (listedFor !== url) return; // a newer base URL took over
 
-    const models = reply?.models || [];
+    const models: ListedModel[] = reply?.models || [];
     modelsEl.innerHTML = '';
     for (const m of models) {
       const option = document.createElement('option');
