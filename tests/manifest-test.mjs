@@ -88,4 +88,20 @@ section('the two worlds still get what they need');
   check('the bridge is up at document_start', startsEarly('src/content/bridge.js'), true);
 }
 
+section('store permissions stay narrow');
+
+{
+  check('the declared Chrome floor matches MAIN-world content scripts', manifest.minimum_chrome_version, '111');
+  check(
+    'only the selected built-in provider is granted at install time',
+    manifest.host_permissions,
+    ['https://api.anthropic.com/*']
+  );
+  check(
+    'user-selected providers are runtime permissions',
+    manifest.optional_host_permissions,
+    ['http://localhost/*', 'http://127.0.0.1/*', 'https://*/*']
+  );
+}
+
 report();

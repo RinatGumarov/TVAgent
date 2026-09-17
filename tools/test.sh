@@ -7,6 +7,8 @@ cd "$root/tests"
 
 tests=(
   manifest-test.mjs
+  provider-url-test.mjs
+  worker-gates-test.mjs
   wire-test.mjs
   bridge-test.mjs
   probe-test.mjs

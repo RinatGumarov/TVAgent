@@ -8,7 +8,11 @@
  * blocks on the way in.
  */
 
-importScripts('/src/shared/models.js', '/src/shared/credentials.js');
+importScripts(
+  '/src/shared/models.js',
+  '/src/shared/credentials.js',
+  '/src/shared/provider-url.js'
+);
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULTS = {
@@ -28,6 +32,7 @@ const MAX_TOKENS = 32000;
 async function settings() {
   const s = await chrome.storage.local.get([
     'apiKey', 'model', 'effort', 'provider', 'baseUrl', 'openaiApiKey', 'openaiModel',
+    'dataDisclosureAccepted',
   ]);
   const provider = s.provider || DEFAULTS.provider;
   const common = {
@@ -35,6 +40,7 @@ async function settings() {
     baseUrl: (s.baseUrl || DEFAULTS.baseUrl).replace(/\/+$/, ''),
     effort: s.effort || DEFAULTS.effort,
     maxTokens: MAX_TOKENS,
+    dataDisclosureAccepted: !!s.dataDisclosureAccepted,
   };
 
   const slots = TVAgentCredentials.split(s);
@@ -42,11 +48,18 @@ async function settings() {
   if (provider === 'anthropic') {
     return { ...common, apiKey: slots.apiKey, model: slots.model || DEFAULTS.model };
   }
+  try {
+    const parsed = TVAgentProviderURL.parse(common.baseUrl);
+    common.baseUrl = parsed.baseUrl;
+    common.providerPermission = parsed.permission;
+  } catch (err) {
+    common.baseUrlError = err.message || String(err);
+  }
   return { ...common, apiKey: slots.openaiApiKey, model: slots.openaiModel };
 }
 
 /** What has to be in place before a turn can go out, in the user's terms. */
-function configError(cfg) {
+function configError(cfg, { requireModel = true } = {}) {
   if (cfg.provider === 'anthropic') {
     return cfg.apiKey
       ? null
@@ -55,8 +68,47 @@ function configError(cfg) {
   // Local providers authenticate with nothing at all, so a key is never
   // required here — but nothing can be called without a model and a URL.
   if (!cfg.baseUrl) return 'No base URL set. Open the panel settings and point it at your provider.';
-  if (!cfg.model) return 'No model set. Open the panel settings and enter the model your provider serves.';
+  if (cfg.baseUrlError) return cfg.baseUrlError;
+  try {
+    TVAgentProviderURL.parse(cfg.baseUrl);
+  } catch (err) {
+    return err.message || String(err);
+  }
+  if (requireModel && !cfg.model) {
+    return 'No model set. Open the panel settings and enter the model your provider serves.';
+  }
   return null;
+}
+
+/** The final worker-side gate before credentials or chart data reach fetch(). */
+async function networkAccessError(cfg, options) {
+  if (!cfg.dataDisclosureAccepted) {
+    return 'Accept the data disclosure in panel settings before contacting a model provider.';
+  }
+  const problem = configError(cfg, options);
+  if (problem) return problem;
+  if (cfg.provider !== 'openai') return null;
+
+  const granted = await chrome.permissions.contains({ origins: [cfg.providerPermission] });
+  return granted
+    ? null
+    : 'Allow access to the configured model provider in panel settings before sending chart data.';
+}
+
+/** Validates content-script requests before invoking the privileged permissions API. */
+async function providerPermission(baseUrl, action) {
+  const parsed = TVAgentProviderURL.parse(baseUrl);
+  const query = { origins: [parsed.permission] };
+  if (action === 'contains') {
+    return { granted: await chrome.permissions.contains(query), permission: parsed.permission };
+  }
+  if (action === 'request') {
+    return { granted: await chrome.permissions.request(query), permission: parsed.permission };
+  }
+  if (action === 'remove') {
+    return { removed: await chrome.permissions.remove(query), permission: parsed.permission };
+  }
+  throw new Error('Unknown provider-permission action.');
 }
 
 chrome.action.onClicked.addListener((tab) => {
@@ -64,10 +116,23 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === 'provider-permission') {
+    (async () => {
+      try {
+        sendResponse(await providerPermission(msg.baseUrl, msg.action));
+      } catch (err) {
+        sendResponse({ error: err.message || String(err) });
+      }
+    })();
+    return true;
+  }
   if (msg?.type !== 'list-models') return undefined;
   (async () => {
     try {
-      sendResponse({ models: await listModels(await settings()) });
+      const cfg = await settings();
+      const problem = await networkAccessError(cfg, { requireModel: false });
+      if (problem) throw new Error(problem);
+      sendResponse({ models: await listModels(cfg) });
     } catch (err) {
       sendResponse({ error: err.message || String(err) });
     }
@@ -96,7 +161,7 @@ chrome.runtime.onConnect.addListener((port) => {
     const cfg = await settings();
     if (closed) return;
 
-    const problem = configError(cfg);
+    const problem = await networkAccessError(cfg);
     if (problem) {
       port.postMessage({ type: 'error', error: problem });
       return;
@@ -413,11 +478,11 @@ async function streamOpenAI(cfg, req, port, signal) {
     });
   } catch (err) {
     if (err.name === 'AbortError') throw err;
-    // A dead server and a host the manifest does not allow both surface as a
+    // A dead server and a revoked optional host both surface as a
     // bare "Failed to fetch", which tells the user nothing.
     throw new Error(
       `Could not reach ${cfg.baseUrl} — ${err.message}. Check that the provider is running, ` +
-      "and that its host is listed in the extension's host_permissions."
+      'and grant its exact host from panel settings.'
     );
   }
 

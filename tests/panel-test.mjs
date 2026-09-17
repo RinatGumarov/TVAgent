@@ -94,11 +94,13 @@ function makeMountMock(mode, root) {
 function makeSettingsMock({ ready = true, autoApprove = false } = {}) {
   let refreshCalls = 0;
   let lastOnChange = null;
+  let readyNow = ready;
   return {
     create(hostEl, opts) {
       lastOnChange = opts.onChange;
       return {
         ready: Promise.resolve(ready),
+        isReady: () => readyNow,
         autoApprove: () => autoApprove,
         refresh: () => { refreshCalls++; },
         current: () => ({ provider: 'anthropic', model: 'claude-opus-5' }),
@@ -106,6 +108,7 @@ function makeSettingsMock({ ready = true, autoApprove = false } = {}) {
     },
     get refreshCalls() { return refreshCalls; },
     get lastOnChange() { return lastOnChange; },
+    setReady(value) { readyNow = value; },
   };
 }
 
@@ -444,6 +447,24 @@ section('send: empty and whitespace input is not sent');
   fireInput(h.inputEl);
   click(h.sendBtn);
   check('empty input: agent.send was not called', h.agent.sendCalls, []);
+}
+
+section('send: disclosure and provider configuration are a hard gate');
+
+{
+  const h = await bootedPanel({ settingsOpts: { ready: false } });
+  // The settings screen opens at boot; closing it must not let a message
+  // through.
+  click(h.root.querySelector('#tva-gear'));
+  check('the chat can be reopened before setup is complete', h.settingsEl.classList.contains('tva-hidden'), true);
+
+  h.inputEl.value = 'read my chart';
+  fireInput(h.inputEl);
+  click(h.sendBtn);
+
+  check('an unready configuration sends nothing to the model', h.agent.sendCalls, []);
+  check('the user message is not added as though a run started', h.listEl.children.length, 0);
+  check('the settings screen reopens at the missing disclosure or permission', h.settingsEl.classList.contains('tva-hidden'), false);
 }
 
 {

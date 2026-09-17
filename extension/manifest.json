@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "TVAgent — AI Agent for TradingView",
+  "name": "TVAgent — AI Chart Assistant",
   "version": "0.1.0",
-  "description": "Claude-powered agent that reads and drives TradingView through its native semantic API.",
+  "description": "AI chart assistant that reads and updates TradingView charts through a fixed set of local tools.",
+  "minimum_chrome_version": "111",
   "homepage_url": "https://github.com/RinatGumarov/TVAgent",
 
   "permissions": ["storage"],
@@ -11,14 +12,17 @@
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
     "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
+    "128": "icons/icon128-store.png"
   },
 
   "host_permissions": [
-    "https://*.tradingview.com/*",
-    "https://api.anthropic.com/*",
+    "https://api.anthropic.com/*"
+  ],
+
+  "optional_host_permissions": [
     "http://localhost/*",
-    "http://127.0.0.1/*"
+    "http://127.0.0.1/*",
+    "https://*/*"
   ],
 
   "background": {
@@ -43,6 +47,7 @@
       "js": [
         "src/shared/models.js",
         "src/shared/credentials.js",
+        "src/shared/provider-url.js",
         "src/content/tools.js",
         "src/content/agent.js",
         "src/content/panel-mount.js",
@@ -62,7 +67,7 @@
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
       "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
+      "128": "icons/icon128-store.png"
     }
   }
 }

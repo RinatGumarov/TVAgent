@@ -1,6 +1,6 @@
 /** Runs the real panel-settings.js under the fake DOM and a fake chrome.storage. */
 import { check, section, report } from './helpers/check.mjs';
-import { makeDocument, click } from './helpers/dom.mjs';
+import { makeDocument, click, textOf } from './helpers/dom.mjs';
 import { readSource } from './helpers/load.mjs';
 
 const src = readSource('content/panel-settings.js');
@@ -10,12 +10,17 @@ const src = readSource('content/panel-settings.js');
  * chrome.storage.local: a missing key does not arrive at all, which is what
  * the migration's `!== undefined` test rests on.
  */
-function makeChrome(initial = {}) {
+function makeChrome(initial = {}, { granted = [], grantRequests = true } = {}) {
   const store = { ...initial };
   const setCalls = [];
+  const requestCalls = [];
+  const removeCalls = [];
+  const origins = new Set(granted);
   return {
     store,
     setCalls,
+    requestCalls,
+    removeCalls,
     storage: {
       local: {
         get: async (keys) =>
@@ -27,7 +32,22 @@ function makeChrome(initial = {}) {
       },
     },
     runtime: {
-      sendMessage: async () => ({ models: [] }),
+      sendMessage: async (msg) => {
+        if (msg?.type !== 'provider-permission') return { models: [] };
+        const url = new URL(msg.baseUrl);
+        const permission = `${url.protocol}//${url.hostname}/*`;
+        if (msg.action === 'contains') return { granted: origins.has(permission) };
+        if (msg.action === 'request') {
+          requestCalls.push([permission]);
+          if (grantRequests) origins.add(permission);
+          return { granted: grantRequests };
+        }
+        if (msg.action === 'remove') {
+          removeCalls.push([permission]);
+          return { removed: origins.delete(permission) };
+        }
+        return { error: 'unknown permission action' };
+      },
     },
   };
 }
@@ -37,7 +57,7 @@ function load(chr) {
   const doc = makeDocument();
   // The shared catalog and the credential rules load first, as the manifest
   // loads them.
-  for (const rel of ['shared/models.js', 'shared/credentials.js']) {
+  for (const rel of ['shared/models.js', 'shared/credentials.js', 'shared/provider-url.js']) {
     new Function('globalThis', 'window', readSource(rel))(win, win);
   }
   new Function('window', 'document', 'chrome', src)(win, doc, chr);
@@ -56,6 +76,40 @@ const btnByValue = (seg, value) =>
 /** The input inside a key field — reachable from the test, and nowhere else. */
 const secretInput = (hostEl, id) =>
   hostEl.querySelector(id)._shadowRootForTests.querySelector('input');
+
+const fireChange = (el) =>
+  (el.listeners.change || []).forEach((fn) => fn({ target: el }));
+
+// ========================================================== data disclosure
+
+section('data disclosure and consent');
+
+{
+  const chr = makeChrome({ provider: 'anthropic', apiKey: 'sk-ant-x' });
+  const { Settings, doc } = load(chr);
+  const hostEl = doc.createElement('div');
+  const api = Settings.create(hostEl, { onChange: () => {} });
+  const ready = await api.ready;
+
+  const disclosure = hostEl.querySelector('#tva-disclosure');
+  const copy = disclosure ? textOf(disclosure) : '';
+  check('the disclosure is visible in the product UI', !!disclosure, true);
+  check('it names prompts and conversations', /prompt|conversation/i.test(copy), true);
+  check('it names chart context and recent OHLCV bars', /chart context/i.test(copy) && /OHLCV/i.test(copy), true);
+  check('it names Pine source', /Pine source/i.test(copy), true);
+  check('it says the selected model provider receives the data', /model provider/i.test(copy), true);
+  check('it says the selected provider receives the API key for authentication', /API key[\s\S]*selected model provider/i.test(copy), true);
+  check('configuration alone is not ready without consent', ready, false);
+
+  const accept = hostEl.querySelector('#tva-disclosure-accept');
+  check('the disclosure has an affirmative consent control', !!accept, true);
+  if (accept) {
+    accept.checked = true;
+    fireChange(accept);
+  }
+  check('affirmative consent is stored only after the checkbox changes', chr.store.dataDisclosureAccepted, true);
+  check('the settings become ready after consent', api.isReady?.(), true);
+}
 
 // ======================================================= the key fields
 
@@ -94,12 +148,12 @@ section('the API key fields are out of the page’s reach');
 
   const input = secretInput(hostEl, '#tva-key');
   input.value = '  sk-ant-typed  ';
-  (input.listeners.change || []).forEach((fn) => fn({}));
+  fireChange(input);
   check('typing into it still writes storage, trimmed', chr.store.apiKey, 'sk-ant-typed');
 
   const other = secretInput(hostEl, '#tva-key2');
   other.value = 'openai-typed';
-  (other.listeners.change || []).forEach((fn) => fn({}));
+  fireChange(other);
   check('and each field writes its own slot', chr.store.openaiApiKey, 'openai-typed');
 }
 
@@ -229,24 +283,74 @@ section('ready');
 }
 
 {
-  const chr = makeChrome({ provider: 'anthropic', apiKey: 'sk-ant-x' });
+  const chr = makeChrome({ provider: 'anthropic', apiKey: 'sk-ant-x', dataDisclosureAccepted: true });
   const { Settings, doc } = load(chr);
   const ready = await Settings.create(doc.createElement('div'), { onChange: () => {} }).ready;
   check('anthropic with a key: ready = true', ready, true);
 }
 
 {
-  const chr = makeChrome({ provider: 'openai', baseUrl: 'http://localhost:11434/v1', openaiApiKey: '', openaiModel: '' });
+  const chr = makeChrome({
+    provider: 'openai',
+    baseUrl: 'http://localhost:11434/v1',
+    openaiApiKey: '',
+    openaiModel: '',
+    dataDisclosureAccepted: true,
+  }, { granted: ['http://localhost/*'] });
   const { Settings, doc } = load(chr);
   const ready = await Settings.create(doc.createElement('div'), { onChange: () => {} }).ready;
   check('openai with no model: ready = false', ready, false);
 }
 
 {
-  const chr = makeChrome({ provider: 'openai', baseUrl: 'http://localhost:11434/v1', openaiApiKey: '', openaiModel: 'gemma4:26b-a4b-it-qat' });
+  const chr = makeChrome({
+    provider: 'openai',
+    baseUrl: 'http://localhost:11434/v1',
+    openaiApiKey: '',
+    openaiModel: 'gemma4:26b-a4b-it-qat',
+    dataDisclosureAccepted: true,
+  }, { granted: ['http://localhost/*'] });
   const { Settings, doc } = load(chr);
   const ready = await Settings.create(doc.createElement('div'), { onChange: () => {} }).ready;
   check('openai with a model: ready = true', ready, true);
+}
+
+{
+  const chr = makeChrome({
+    provider: 'openai',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    openaiModel: 'model-a',
+    dataDisclosureAccepted: true,
+  });
+  const { Settings, doc } = load(chr);
+  const hostEl = doc.createElement('div');
+  const api = Settings.create(hostEl, { onChange: () => {} });
+  const ready = await api.ready;
+  check('a configured hosted provider is not ready before its host is granted', ready, false);
+
+  fireChange(hostEl.querySelector('#tva-base'));
+  await Promise.resolve();
+  await Promise.resolve();
+  check('editing the URL does not request permission outside an explicit button gesture', chr.requestCalls, []);
+
+  click(hostEl.querySelector('#tva-provider-access'));
+  await Promise.resolve();
+  await Promise.resolve();
+  check('the access button requests only the configured provider host', chr.requestCalls, [['https://api.groq.com/*']]);
+  check('granting the provider host makes the settings ready', api.isReady?.(), true);
+
+  const base = hostEl.querySelector('#tva-base');
+  base.value = 'https://api.groq.com/v2';
+  fireChange(base);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  check('changing only the API path keeps the existing host grant', chr.removeCalls, []);
+  check('the same granted host remains ready after a path change', api.isReady?.(), true);
+
+  base.value = 'https://api.example.com/v1';
+  fireChange(base);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  check('changing provider revokes the obsolete optional host', chr.removeCalls, [['https://api.groq.com/*']]);
+  check('the new provider needs its own explicit grant', api.isReady?.(), false);
 }
 
 // ================================================================ loadModels
@@ -254,9 +358,20 @@ section('ready');
 section('loadModels: once per URL, again when it changes');
 
 {
-  const chr = makeChrome({ provider: 'openai', baseUrl: 'http://host-a/v1', openaiApiKey: '', openaiModel: 'm' });
+  const chr = makeChrome({
+    provider: 'openai',
+    baseUrl: 'https://host-a.example/v1',
+    openaiApiKey: '',
+    openaiModel: 'm',
+    dataDisclosureAccepted: true,
+  }, { granted: ['https://host-a.example/*', 'https://host-b.example/*'] });
   let calls = 0;
-  chr.runtime.sendMessage = async () => { calls++; return { models: [{ id: 'model-a', tools: true }] }; };
+  const relay = chr.runtime.sendMessage;
+  chr.runtime.sendMessage = async (msg) => {
+    if (msg?.type === 'provider-permission') return relay(msg);
+    calls++;
+    return { models: [{ id: 'model-a', tools: true }] };
+  };
   const { Settings, doc } = load(chr);
   const hostEl = doc.createElement('div');
   const api = Settings.create(hostEl, { onChange: () => {} });
@@ -268,7 +383,7 @@ section('loadModels: once per URL, again when it changes');
   await api.refresh();
   check('a second refresh at the same URL does not ask again', calls, 1);
 
-  hostEl.querySelector('#tva-base').value = 'http://host-b/v1';
+  hostEl.querySelector('#tva-base').value = 'https://host-b.example/v1';
   await api.refresh();
   check('changing the base URL asks again', calls, 2);
 }
@@ -276,9 +391,20 @@ section('loadModels: once per URL, again when it changes');
 section('loadModels: a failure releases the latch');
 
 {
-  const chr = makeChrome({ provider: 'openai', baseUrl: 'http://host-err/v1', openaiApiKey: '', openaiModel: 'm' });
+  const chr = makeChrome({
+    provider: 'openai',
+    baseUrl: 'https://host-err.example/v1',
+    openaiApiKey: '',
+    openaiModel: 'm',
+    dataDisclosureAccepted: true,
+  }, { granted: ['https://host-err.example/*'] });
   let calls = 0;
-  chr.runtime.sendMessage = async () => { calls++; throw new Error('boom'); };
+  const relay = chr.runtime.sendMessage;
+  chr.runtime.sendMessage = async (msg) => {
+    if (msg?.type === 'provider-permission') return relay(msg);
+    calls++;
+    throw new Error('boom');
+  };
   const { Settings, doc } = load(chr);
   const hostEl = doc.createElement('div');
   const api = Settings.create(hostEl, { onChange: () => {} });

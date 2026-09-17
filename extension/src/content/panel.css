@@ -391,6 +391,35 @@
 /* ---------------------------------------------------------------- settings */
 
 #tva-root .tva-settings { padding: 12px; }
+#tva-root .tva-disclosure {
+  margin: 0 0 16px;
+  padding: 11px;
+  border: 1px solid var(--tva-border);
+  border-radius: 8px;
+  background: var(--tva-bg-soft);
+}
+#tva-root .tva-disclosure h2 {
+  margin: 0 0 7px;
+  color: var(--tva-fg);
+  font-size: 13px;
+  line-height: 1.3;
+}
+#tva-root .tva-disclosure p {
+  margin: 0 0 7px;
+  color: var(--tva-fg-dim);
+  font-size: 11px;
+  line-height: 1.45;
+}
+#tva-root .tva-disclosure a {
+  color: var(--tva-accent);
+  font-size: 11px;
+  text-decoration: none;
+}
+#tva-root .tva-disclosure-check {
+  margin-top: 10px;
+  color: var(--tva-fg);
+  line-height: 1.35;
+}
 #tva-root .tva-set-group { margin-bottom: 14px; }
 #tva-root .tva-set-label {
   display: block;
@@ -411,6 +440,18 @@
   outline: none;
 }
 #tva-root .tva-settings input:focus { border-color: var(--tva-accent); }
+#tva-root .tva-secondary {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--tva-accent);
+  border-radius: 6px;
+  background: var(--tva-accent-tint);
+  color: var(--tva-accent);
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
 /* The API key fields are closed shadow roots, so their own styling is inside
    them (panel-settings.js) — this is only the box they sit in. */
 #tva-root .tva-secret { display: block; }

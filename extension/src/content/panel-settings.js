@@ -11,6 +11,7 @@ window.TVAgentSettings = (() => {
   const KEYS = [
     'apiKey', 'model', 'effort', 'autoApprove',
     'provider', 'baseUrl', 'openaiApiKey', 'openaiModel',
+    'dataDisclosureAccepted',
   ];
 
   const MODELS = window.TVAgentModels.ANTHROPIC;
@@ -91,6 +92,22 @@ window.TVAgentSettings = (() => {
 
   function create(hostEl, { onChange }) {
     hostEl.innerHTML = `
+      <section class="tva-disclosure" id="tva-disclosure">
+        <h2>Before you send chart data</h2>
+        <p>When you send a message, TVAgent sends your prompts and conversation,
+          chart context, recent OHLCV bars, indicators, drawings, strategy values,
+          and any Pine source you ask it to work on to your selected model provider.</p>
+        <p>Your API key is sent only to the selected model provider to
+          authenticate its API request. The TVAgent developer and TradingView do
+          not receive your prompts or model credentials.</p>
+        <a href="https://github.com/RinatGumarov/TVAgent/blob/main/PRIVACY.md"
+          target="_blank" rel="noopener noreferrer">Read the privacy policy</a>
+        <label class="tva-check tva-disclosure-check">
+          <input type="checkbox" id="tva-disclosure-accept">
+          <span>I understand and agree to this data use</span>
+        </label>
+      </section>
+
       <div class="tva-set-group">
         <label class="tva-set-label">Provider</label>
         ${segmented('provider', PROVIDERS)}
@@ -99,18 +116,20 @@ window.TVAgentSettings = (() => {
       <div class="tva-set-group" data-for="anthropic">
         <label class="tva-set-label">API key</label>
         <div class="tva-secret" id="tva-key"></div>
-        <p class="tva-set-hint">Stored in this extension only. Never sent to the page or to TradingView.</p>
+        <p class="tva-set-hint">Stored locally and sent only to Anthropic for authentication. Never sent to the page or TradingView.</p>
       </div>
 
       <div class="tva-set-group" data-for="openai">
         <label class="tva-set-label" for="tva-base">Base URL</label>
         <input type="text" id="tva-base" placeholder="http://localhost:11434/v1" autocomplete="off" spellcheck="false">
-        <p class="tva-set-hint">Ollama needs no key.</p>
+        <p class="tva-set-hint" id="tva-base-hint">Hosted providers must use HTTPS. Ollama on localhost needs no key.</p>
+        <button class="tva-secondary tva-hidden" id="tva-provider-access" type="button">Allow provider access</button>
       </div>
 
       <div class="tva-set-group" data-for="openai">
         <label class="tva-set-label">API key</label>
         <div class="tva-secret" id="tva-key2"></div>
+        <p class="tva-set-hint">Stored locally and sent only to the configured provider for authentication.</p>
       </div>
 
       <div class="tva-set-group" data-for="anthropic">
@@ -142,8 +161,11 @@ window.TVAgentSettings = (() => {
     const keyEl = secretField(q('#tva-key'), { placeholder: 'sk-ant-...' });
     const key2El = secretField(q('#tva-key2'), { placeholder: 'leave empty for Ollama' });
     const baseEl = q('#tva-base');
+    const baseHintEl = q('#tva-base-hint');
+    const accessEl = q('#tva-provider-access');
     const model2El = q('#tva-model2');
     const autoEl = q('#tva-auto');
+    const disclosureEl = q('#tva-disclosure-accept');
     const modelsEl = q('#tva-models');
     const hintEl = q('#tva-model-hint');
 
@@ -151,6 +173,9 @@ window.TVAgentSettings = (() => {
       provider: 'anthropic',
       model: window.TVAgentModels.DEFAULT_MODEL,
       effort: 'high',
+      accepted: false,
+      providerAllowed: true,
+      providerBaseUrl: null,
     };
 
     function paintSegments() {
@@ -163,6 +188,10 @@ window.TVAgentSettings = (() => {
       hostEl.querySelectorAll('[data-for]').forEach((el) => {
         el.classList.toggle('tva-hidden', el.dataset.for !== state.provider);
       });
+      accessEl.classList.toggle(
+        'tva-hidden',
+        state.provider !== 'openai' || state.providerAllowed
+      );
       onChange(current());
     }
 
@@ -172,6 +201,79 @@ window.TVAgentSettings = (() => {
         model: state.provider === 'anthropic' ? state.model : model2El.value.trim(),
         effort: state.effort,
       };
+    }
+
+    function isReady() {
+      if (!state.accepted) return false;
+      if (state.provider === 'anthropic') return !!keyEl.value;
+      return !!model2El.value.trim() && state.providerAllowed && validProvider(false);
+    }
+
+    function validProvider(showError = true) {
+      try {
+        window.TVAgentProviderURL.parse(baseEl.value);
+        return true;
+      } catch (err) {
+        if (showError) baseHintEl.textContent = err.message || String(err);
+        return false;
+      }
+    }
+
+    async function providerPermission(request) {
+      if (state.provider !== 'openai') {
+        state.providerAllowed = true;
+        paintSegments();
+        return true;
+      }
+
+      let parsed;
+      try {
+        parsed = window.TVAgentProviderURL.parse(baseEl.value);
+      } catch (err) {
+        state.providerAllowed = false;
+        baseHintEl.textContent = err.message || String(err);
+        paintSegments();
+        return false;
+      }
+      state.providerBaseUrl = parsed.baseUrl;
+
+      try {
+        const reply = await chrome.runtime.sendMessage({
+          type: 'provider-permission',
+          action: request ? 'request' : 'contains',
+          baseUrl: parsed.baseUrl,
+        });
+        if (reply?.error) throw new Error(reply.error);
+        state.providerAllowed = !!reply?.granted;
+      } catch (err) {
+        state.providerAllowed = false;
+        baseHintEl.textContent = request
+          ? `Chrome could not grant provider access: ${err.message || String(err)}`
+          : 'Allow access to this provider before sending chart data.';
+        paintSegments();
+        return false;
+      }
+      baseHintEl.textContent = state.providerAllowed
+        ? `Access allowed for ${new URL(parsed.baseUrl).hostname}.`
+        : 'Allow access to this provider before sending chart data.';
+      paintSegments();
+      return state.providerAllowed;
+    }
+
+    async function revokeProviderPermission(baseUrl) {
+      if (!baseUrl) return false;
+      try {
+        const reply = await chrome.runtime.sendMessage({
+          type: 'provider-permission',
+          action: 'remove',
+          baseUrl,
+        });
+        if (reply?.error) throw new Error(reply.error);
+        return !!reply?.removed;
+      } catch (err) {
+        console.warn('[TVAgent] could not revoke obsolete provider access:', err);
+        return false;
+      }
     }
 
     hostEl.querySelectorAll('.tva-seg').forEach((seg) => {
@@ -184,16 +286,51 @@ window.TVAgentSettings = (() => {
           field === 'provider' ? { provider: state.provider }
           : field === 'model' ? { model: state.model }
           : { effort: state.effort };
-        chrome.storage.local.set(stored).then(field === 'provider' ? loadModels : () => {});
+        chrome.storage.local.set(stored).then(async () => {
+          if (field !== 'provider') return;
+          if (state.provider === 'anthropic' && state.providerBaseUrl) {
+            await revokeProviderPermission(state.providerBaseUrl);
+            state.providerBaseUrl = null;
+          }
+          await providerPermission(false);
+          await loadModels();
+        });
         paintSegments();
       });
     });
 
     keyEl.onChange(() => chrome.storage.local.set({ apiKey: keyEl.value }));
     key2El.onChange(() => chrome.storage.local.set({ openaiApiKey: key2El.value }));
-    baseEl.addEventListener('change', () =>
-      chrome.storage.local.set({ baseUrl: baseEl.value.trim() }).then(loadModels)
-    );
+    disclosureEl.addEventListener('change', () => {
+      state.accepted = !!disclosureEl.checked;
+      chrome.storage.local.set({ dataDisclosureAccepted: state.accepted });
+    });
+    baseEl.addEventListener('change', async () => {
+      const previousBaseUrl = state.providerBaseUrl;
+      let parsed;
+      try {
+        parsed = window.TVAgentProviderURL.parse(baseEl.value);
+      } catch (err) {
+        state.providerAllowed = false;
+        baseHintEl.textContent = err.message || String(err);
+        paintSegments();
+        return;
+      }
+      baseEl.value = parsed.baseUrl;
+      listedFor = null;
+      await chrome.storage.local.set({ baseUrl: parsed.baseUrl });
+      const previousPermission = previousBaseUrl
+        ? window.TVAgentProviderURL.parse(previousBaseUrl).permission
+        : null;
+      if (previousPermission && previousPermission !== parsed.permission) {
+        await revokeProviderPermission(previousBaseUrl);
+      }
+      await providerPermission(false);
+      if (state.providerAllowed) await loadModels();
+    });
+    accessEl.addEventListener('click', async () => {
+      if (await providerPermission(true)) await loadModels();
+    });
     model2El.addEventListener('change', () => {
       chrome.storage.local.set({ openaiModel: model2El.value.trim() });
       onChange(current());
@@ -208,8 +345,19 @@ window.TVAgentSettings = (() => {
      */
     let listedFor = null;
     async function loadModels() {
-      const url = baseEl.value.trim();
+      let parsed;
+      try {
+        parsed = window.TVAgentProviderURL.parse(baseEl.value);
+      } catch (err) {
+        baseHintEl.textContent = err.message || String(err);
+        return;
+      }
+      const url = parsed.baseUrl;
       if (state.provider !== 'openai' || !url || listedFor === url) return;
+      if (!(await providerPermission(false))) {
+        listedFor = null;
+        return;
+      }
       listedFor = url;
 
       hintEl.textContent = 'Loading models…';
@@ -245,24 +393,26 @@ window.TVAgentSettings = (() => {
     const ready = chrome.storage.local
       .get(KEYS)
       .then(migrate)
-      .then((s) => {
+      .then(async (s) => {
         state.provider = s.provider || 'anthropic';
         state.model = s.model || window.TVAgentModels.DEFAULT_MODEL;
         state.effort = s.effort || 'high';
+        state.accepted = !!s.dataDisclosureAccepted;
         keyEl.value = s.apiKey || '';
         key2El.value = s.openaiApiKey || '';
         baseEl.value = s.baseUrl || 'http://localhost:11434/v1';
         model2El.value = s.openaiModel || '';
         autoEl.checked = !!s.autoApprove;
+        disclosureEl.checked = state.accepted;
+        if (state.provider === 'openai') await providerPermission(false);
         paintSegments();
-        // Anthropic cannot run without a key; a local provider can, but it
-        // still has to be told which model to call.
-        return state.provider === 'anthropic' ? !!s.apiKey : !!s.openaiModel;
+        return isReady();
       });
 
     return {
       ready,
       current,
+      isReady,
       autoApprove: () => autoEl.checked,
       refresh: loadModels,
     };

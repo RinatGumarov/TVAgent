@@ -6,7 +6,7 @@ import { check, section, report } from './helpers/check.mjs';
 import { readSource, loadShared } from './helpers/load.mjs';
 
 const src = readSource('background/service-worker.js');
-const shared = loadShared('shared/models.js', 'shared/credentials.js');
+const shared = loadShared('shared/models.js', 'shared/credentials.js', 'shared/provider-url.js');
 
 // ---- the worker under a fake chrome ----------------------------------------
 
@@ -29,8 +29,15 @@ const load = (data) =>
     'importScripts',
     'TVAgentModels',
     'TVAgentCredentials',
+    'TVAgentProviderURL',
     `${src}\nreturn { settings, configError, streamAnthropic };`
-  )(chromeStub(data), () => {}, shared.TVAgentModels, shared.TVAgentCredentials);
+  )(
+    chromeStub(data),
+    () => {},
+    shared.TVAgentModels,
+    shared.TVAgentCredentials,
+    shared.TVAgentProviderURL
+  );
 
 section('the provider config');
 
@@ -119,6 +126,18 @@ section('the config check before a request');
     err({ provider: 'openai', model: 'gemma4:26b', baseUrl: 'http://localhost:11434/v1' }),
     null
   );
+  check(
+    'a remote plaintext provider is refused before any request can carry data',
+    /HTTPS|localhost|127\.0\.0\.1/.test(
+      err({ provider: 'openai', model: 'm', baseUrl: 'http://api.example.com/v1' }) || ''
+    ),
+    true
+  );
+  check(
+    'a hosted HTTPS provider is accepted',
+    err({ provider: 'openai', model: 'm', baseUrl: 'https://api.example.com/v1' }),
+    null
+  );
 }
 
 // ---- what the request body carries -----------------------------------------
@@ -141,8 +160,16 @@ async function bodyFor(model) {
     'importScripts',
     'TVAgentModels',
     'TVAgentCredentials',
+    'TVAgentProviderURL',
     `${src}\nreturn { streamAnthropic };`
-  )(chromeStub({}), fetchStub, () => {}, shared.TVAgentModels, shared.TVAgentCredentials);
+  )(
+    chromeStub({}),
+    fetchStub,
+    () => {},
+    shared.TVAgentModels,
+    shared.TVAgentCredentials,
+    shared.TVAgentProviderURL
+  );
 
   await worker
     .streamAnthropic(

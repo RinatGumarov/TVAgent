@@ -311,6 +311,13 @@
   function submit(text) {
     const trimmed = String(text).trim();
     if (!trimmed || !agent || busy) return;
+    // The settings screen can be closed with the gear button, so the gate is
+    // enforced here too.
+    if (settings?.isReady && !settings.isReady()) {
+      showScreen('settings');
+      settings.refresh();
+      return;
+    }
     inputEl.value = '';
     inputEl.style.height = 'auto';
     // showScreen derives the empty state from the list, so the message has to

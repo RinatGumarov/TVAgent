@@ -25,12 +25,15 @@ Chrome 111 or newer is required.
 2. Open the panel. On a logged-in chart it is a tab marked **AI** in the
    right-hand widget bar. Without a widget bar, the extension's toolbar button
    opens it as an overlay.
-3. Choose a provider in the settings screen:
+3. Read the data disclosure in the settings screen and accept it.
+4. Choose a provider:
    - **Anthropic**: paste an [API key](https://console.anthropic.com/settings/keys)
      and pick a model.
-   - **OpenAI-compatible**: enter the base URL and a model name. A local
-     server such as Ollama on `localhost` needs no key.
-4. Type a request, or click one of the suggestions.
+   - **OpenAI-compatible**: enter the base URL and a model name. Local servers
+     such as Ollama or LM Studio work over HTTP on `localhost`. Hosted
+     providers must use HTTPS, and Chrome asks you to allow that exact host
+     before anything is sent to it.
+5. Type a request, or click one of the suggestions.
 
 The chat shows every tool call the model makes and what came back. Reading the
 chart and changing indicators or drawings happen without asking. Writing Pine
@@ -73,7 +76,7 @@ Pine tools in a session without the Pine editor, are not offered.
          │ chrome.runtime Port      │ authenticated postMessage
          ▼                          ▼
 ┌─ Background worker ────┐  ┌─ Driver (page world) ─────┐
-│ holds the API key      │  │ window.TradingViewApi     │
+│ attaches the API key   │  │ window.TradingViewApi     │
 │ streams the response   │  └───────────────────────────┘
 └────────────────────────┘
 ```
@@ -85,8 +88,8 @@ Pine tools in a session without the Pine editor, are not offered.
   `postMessage`, which every script on the page can see, so the two ends agree
   a secret at `document_start` and stamp every message with an HMAC.
 - **Background worker** (`extension/src/background/service-worker.js`)
-  holds the API key and streams the model's response. The key never reaches
-  the page.
+  attaches the API key and streams the model's response. The key never
+  reaches the page.
 
 ## Limits
 
@@ -95,9 +98,6 @@ Pine tools in a session without the Pine editor, are not offered.
 - Only the bars TradingView has loaded, about 300, are available to the model.
 - Horizontal, vertical and trend lines and text labels are the drawings
   exposed. Other drawing tools are not.
-- Only local OpenAI-compatible endpoints work out of the box. The manifest
-  grants `localhost` and `127.0.0.1`; a hosted provider needs its host added
-  to `host_permissions`.
 
 ## Development
 

@@ -1,6 +1,6 @@
 # Privacy Policy — TVAgent
 
-**Last updated:** 2026-08-18
+**Last updated:** 2026-08-22
 
 TVAgent is a browser extension that adds an AI chat panel to TradingView charts.
 It has no backend. There is no TVAgent server, no account, and no analytics.
@@ -13,12 +13,18 @@ is synced to a Google account or transmitted to the developer.
 | Stored | Why |
 |---|---|
 | Your LLM API key | To authenticate your requests to the model provider you chose |
-| Provider, model name, base URL, reasoning effort, max tokens | Your model settings |
+| Provider, model name, base URL and reasoning effort | Your model settings |
 | `autoApprove` flag | Whether Level 2 actions ask for confirmation |
+| Data-disclosure consent flag | Whether you accepted the current in-product disclosure |
 | Panel width | To restore the panel at the size you left it |
 
 Conversations are not written to disk. They live in the panel for the current
 tab and are gone when you close or reload it.
+
+Before TVAgent sends a message, its settings screen names the data that will go
+to the selected model provider and requires affirmative consent. The extension
+will not start a model run until that disclosure is accepted, the provider is
+configured, and any optional provider host permission has been granted.
 
 ## What leaves your browser, and where it goes
 
@@ -32,21 +38,22 @@ it to work on) to that provider's API:
 
 - **Anthropic** (`https://api.anthropic.com`) — governed by
   [Anthropic's Privacy Policy](https://www.anthropic.com/legal/privacy).
-- **Any OpenAI-compatible endpoint you enter yourself**, including local ones such
-  as Ollama or LM Studio on `localhost`. With a local endpoint, nothing leaves
-  your machine at all. With a hosted one, that provider's own privacy policy
-  applies.
+- **Any OpenAI-compatible endpoint you enter yourself.** HTTP is accepted only
+  for Ollama, LM Studio or another process on `localhost` or `127.0.0.1`.
+  Hosted endpoints must use HTTPS and require a Chrome permission for that exact
+  provider host. With a local endpoint, nothing leaves your machine. With a
+  hosted one, that provider's own privacy policy applies.
 
 **2. TradingView**, only in the sense that the extension runs inside the
 `tradingview.com` chart page you already have open and calls the page's own APIs.
 It sends TradingView nothing extra and does not transmit your API key, your
 prompts, or your conversation to TradingView.
 
-The API key is held in the extension's background service worker and attached to
-provider requests there. It is never exposed to the TradingView page, and never
-sent anywhere except the provider endpoint you configured. The settings screen's
-key fields live in a closed shadow root, so no script on tradingview.com can
-read the value out of the panel's own markup either.
+The API key stays in extension storage, is displayed only in the isolated
+content script's closed-shadow settings field, and is attached to provider
+requests by the background service worker. It is never exposed to the
+TradingView page, and never sent anywhere except the provider endpoint you
+configured.
 
 ## What TVAgent does not do
 
@@ -57,14 +64,35 @@ read the value out of the panel's own markup either.
 - No access to your TradingView credentials or broker accounts. TVAgent cannot
   place, modify, or cancel orders — there is no code path to one.
 
+## Chrome Web Store data categories
+
+For the Chrome Web Store disclosure form, TVAgent handles these categories only
+to provide its user-facing chart assistant:
+
+| Category | What it means in TVAgent |
+|---|---|
+| Authentication information | The LLM API key you enter and keep in local extension storage |
+| Website content | Chart context, recent OHLCV bars, indicators, drawings, strategy values and requested Pine source |
+| User-generated content / personal communications | Prompts and the in-memory conversation sent to the provider you select |
+
+TVAgent does not sell data, use it for advertising or creditworthiness, or
+transfer it for any purpose unrelated to the chart assistant. The use of
+information received from Google APIs will adhere to the Chrome Web Store User
+Data Policy, including the Limited Use requirements.
+
 ## Permissions, and why each is needed
 
 | Permission | Why |
 |---|---|
 | `storage` | Save your settings and API key locally |
-| `https://*.tradingview.com/*` | Run the panel and read/drive the chart, which is the entire product |
+| TradingView content-script match: `https://*.tradingview.com/chart/*` | Load the product only on chart pages and run the fixed chart tools requested by the user |
 | `https://api.anthropic.com/*` | Send your requests to Anthropic when Anthropic is the selected provider |
-| `http://localhost/*`, `http://127.0.0.1/*` | Reach a local model server such as Ollama or LM Studio, if you point the extension at one |
+| `http://localhost/*`, `http://127.0.0.1/*` (optional) | Reach a local model server only after you configure and allow it |
+| `https://*/*` (optional declaration) | Let Chrome grant only the exact HTTPS provider host you enter; the extension never requests every HTTPS host at runtime |
+
+The extension runs only on the TradingView chart pages declared in its static
+content-script matches. It does not request a separate TradingView host
+permission for background network access.
 
 ## Deleting your data
 
