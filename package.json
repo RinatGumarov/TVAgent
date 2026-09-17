@@ -9,7 +9,7 @@
     "node": ">=22.18"
   },
   "scripts": {
-    "test": "bash tools/test.sh",
+    "test": "node --test 'tests/**/*.test.mjs'",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
