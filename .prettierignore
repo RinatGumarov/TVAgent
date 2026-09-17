@@ -1,0 +1,6 @@
+build/
+dist/
+docs/
+extension/icons/
+store/assets/
+package-lock.json

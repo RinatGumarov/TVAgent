@@ -1,0 +1,29 @@
+{
+  "name": "tvagent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI chart assistant for TradingView, as a Chrome extension.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "test": "bash tools/test.sh",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/chrome": "^0.3.0",
+    "@types/node": "^22.20.3",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.10.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.7",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.70.0"
+  }
+}
