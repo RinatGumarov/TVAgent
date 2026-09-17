@@ -1,4 +1,4 @@
 /** The background service worker. */
-import { registerWorker } from '../background/service-worker.js';
+import { registerWorker } from '../background/service-worker.ts';
 
 registerWorker();

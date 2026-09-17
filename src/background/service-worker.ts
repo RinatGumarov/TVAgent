@@ -12,6 +12,45 @@ import * as TVAgentModels from '../shared/models.ts';
 import * as TVAgentCredentials from '../shared/credentials.ts';
 import * as TVAgentProviderURL from '../shared/provider-url.ts';
 
+import type { ContentBlock, Message } from '../content/agent.ts';
+import type { ToolForApi } from '../content/tools.ts';
+import type { StoredCredentials } from '../shared/credentials.ts';
+
+/** The slice of chrome.storage.local a turn is assembled from. */
+interface StoredProfile extends StoredCredentials {
+  baseUrl?: string;
+  effort?: string;
+  dataDisclosureAccepted?: boolean;
+}
+
+/** Everything a turn needs to know about where it is going. */
+export interface ProviderConfig {
+  provider: string;
+  baseUrl: string;
+  effort: string;
+  maxTokens: number;
+  dataDisclosureAccepted: boolean;
+  apiKey: string;
+  model: string;
+  /** The one host permission this endpoint needs, when it is a valid one. */
+  providerPermission?: string;
+  /** Why the stored URL is unusable, in the user's terms. */
+  baseUrlError?: string;
+}
+
+/** One turn, as the panel asks for it. */
+export interface TurnRequest {
+  system: string;
+  messages: Message[];
+  tools: ToolForApi[];
+}
+
+/** One assistant turn, in Anthropic's shape whatever the provider was. */
+export interface AssistantMessage {
+  content: ContentBlock[];
+  stop_reason: string;
+}
+
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULTS = {
   provider: 'anthropic',
@@ -27,8 +66,8 @@ const MAX_TOKENS = 32000;
  * The active provider's own key and model; each provider has its own storage
  * slot.
  */
-export async function settings() {
-  const s = await chrome.storage.local.get([
+export async function settings(): Promise<ProviderConfig> {
+  const s: StoredProfile = await chrome.storage.local.get([
     'apiKey',
     'model',
     'effort',
@@ -39,7 +78,7 @@ export async function settings() {
     'dataDisclosureAccepted',
   ]);
   const provider = s.provider || DEFAULTS.provider;
-  const common = {
+  const common: Omit<ProviderConfig, 'apiKey' | 'model'> = {
     provider,
     baseUrl: (s.baseUrl || DEFAULTS.baseUrl).replace(/\/+$/, ''),
     effort: s.effort || DEFAULTS.effort,
@@ -57,13 +96,13 @@ export async function settings() {
     common.baseUrl = parsed.baseUrl;
     common.providerPermission = parsed.permission;
   } catch (err) {
-    common.baseUrlError = err.message || String(err);
+    common.baseUrlError = (err as Error).message || String(err);
   }
   return { ...common, apiKey: slots.openaiApiKey, model: slots.openaiModel };
 }
 
 /** What has to be in place before a turn can go out, in the user's terms. */
-export function configError(cfg, { requireModel = true } = {}) {
+export function configError(cfg: ProviderConfig, { requireModel = true } = {}) {
   if (cfg.provider === 'anthropic') {
     return cfg.apiKey
       ? null
@@ -77,7 +116,7 @@ export function configError(cfg, { requireModel = true } = {}) {
   try {
     TVAgentProviderURL.parse(cfg.baseUrl);
   } catch (err) {
-    return err.message || String(err);
+    return (err as Error).message || String(err);
   }
   if (requireModel && !cfg.model) {
     return 'No model set. Open the panel settings and enter the model your provider serves.';
@@ -86,13 +125,15 @@ export function configError(cfg, { requireModel = true } = {}) {
 }
 
 /** The final worker-side gate before credentials or chart data reach fetch(). */
-async function networkAccessError(cfg, options) {
+async function networkAccessError(cfg: ProviderConfig, options?: { requireModel?: boolean }) {
   if (!cfg.dataDisclosureAccepted) {
     return 'Accept the data disclosure in panel settings before contacting a model provider.';
   }
   const problem = configError(cfg, options);
   if (problem) return problem;
   if (cfg.provider !== 'openai') return null;
+
+  if (!cfg.providerPermission) return cfg.baseUrlError || 'The provider URL is not usable.';
 
   const granted = await chrome.permissions.contains({ origins: [cfg.providerPermission] });
   return granted
@@ -101,7 +142,7 @@ async function networkAccessError(cfg, options) {
 }
 
 /** Validates content-script requests before invoking the privileged permissions API. */
-async function providerPermission(baseUrl, action) {
+async function providerPermission(baseUrl: string, action: string) {
   const parsed = TVAgentProviderURL.parse(baseUrl);
   const query = { origins: [parsed.permission] };
   if (action === 'contains') {
@@ -128,7 +169,7 @@ export function registerWorker() {
         try {
           sendResponse(await providerPermission(msg.baseUrl, msg.action));
         } catch (err) {
-          sendResponse({ error: err.message || String(err) });
+          sendResponse({ error: (err as Error).message || String(err) });
         }
       })();
       return true;
@@ -141,7 +182,7 @@ export function registerWorker() {
         if (problem) throw new Error(problem);
         sendResponse({ models: await listModels(cfg) });
       } catch (err) {
-        sendResponse({ error: err.message || String(err) });
+        sendResponse({ error: (err as Error).message || String(err) });
       }
     })();
     return true; // the reply comes later
@@ -150,7 +191,7 @@ export function registerWorker() {
   chrome.runtime.onConnect.addListener((port) => {
     if (port.name !== 'tvagent-llm') return;
 
-    let aborter = null;
+    let aborter: AbortController | null = null;
     let closed = false;
     port.onDisconnect.addListener(() => {
       closed = true;
@@ -178,18 +219,18 @@ export function registerWorker() {
         const message =
           cfg.provider === 'anthropic'
             ? await streamAnthropic(cfg, msg, port, aborter.signal)
-            : await streamOpenAI(cfg, msg, port, aborter.signal);
+            : await streamOpenAI(cfg, msg, port, aborter!.signal);
         port.postMessage({ type: 'done', message });
       } catch (err) {
-        if (err.name === 'AbortError') return;
-        port.postMessage({ type: 'error', error: err.message || String(err) });
+        if ((err as Error).name === 'AbortError') return;
+        port.postMessage({ type: 'error', error: (err as Error).message || String(err) });
       }
     });
   });
 }
 
 /** Turns a non-2xx response into an error carrying whatever detail the server gave. */
-async function httpError(response, label) {
+async function httpError(response: Response, label: string) {
   let detail;
   try {
     const data = await response.json();
@@ -204,8 +245,8 @@ async function httpError(response, label) {
  * Splits an SSE body into `data:` payloads. Both providers use the same framing;
  * only the event shapes inside differ.
  */
-async function* sseEvents(response) {
-  const reader = response.body.getReader();
+async function* sseEvents(response: Response) {
+  const reader = response.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
 
@@ -234,7 +275,12 @@ async function* sseEvents(response) {
 // Anthropic
 // ---------------------------------------------------------------------------
 
-export async function streamAnthropic(cfg, req, port, signal) {
+export async function streamAnthropic(
+  cfg: ProviderConfig,
+  req: TurnRequest,
+  port: chrome.runtime.Port,
+  signal?: AbortSignal,
+): Promise<AssistantMessage> {
   const body = {
     model: cfg.model,
     max_tokens: cfg.maxTokens,
@@ -268,7 +314,10 @@ export async function streamAnthropic(cfg, req, port, signal) {
  * are echoed back to the model verbatim on the next turn, so thinking blocks
  * keep their signatures.
  */
-async function parseAnthropicStream(response, port) {
+async function parseAnthropicStream(
+  response: Response,
+  port: chrome.runtime.Port,
+): Promise<AssistantMessage> {
   const blocks = [];
   const partialJson = new Map(); // block index → accumulated tool input JSON
   let stopReason = null;
@@ -332,13 +381,13 @@ async function parseAnthropicStream(response, port) {
   return { content: blocks.filter(nonEmpty), stop_reason: stopReason };
 }
 
-function nonEmpty(block) {
+function nonEmpty(block: ContentBlock) {
   if (!block) return false;
-  if (block.type === 'text') return !!(block.text && block.text.trim());
+  if (block.type === 'text') return !!(typeof block.text === 'string' && block.text.trim());
   // A thinking block with a signature has to survive even when its summary is
   // blank.
   if (block.type === 'thinking') {
-    return !!((block.thinking && block.thinking.trim()) || block.signature);
+    return !!((typeof block.thinking === 'string' && block.thinking.trim()) || block.signature);
   }
   return true;
 }
@@ -351,28 +400,33 @@ function nonEmpty(block) {
  * The models the configured provider will answer to. `/v1/models` is part of
  * the OpenAI shape, so Ollama, Groq, Gemini and OpenRouter all serve it.
  */
-export async function listModels(cfg) {
+export async function listModels(cfg: ProviderConfig) {
   // Anthropic ships a fixed list in the panel. Asking here would also mean
   // sending its key to whatever base URL happens to be stored.
   if (cfg.provider === 'anthropic') return [];
 
-  const headers = cfg.apiKey ? { authorization: `Bearer ${cfg.apiKey}` } : {};
-  let response;
+  const headers: Record<string, string> = cfg.apiKey
+    ? { authorization: `Bearer ${cfg.apiKey}` }
+    : {};
+  let response: Response;
   try {
     response = await fetch(`${cfg.baseUrl}/models`, { headers, signal: AbortSignal.timeout(8000) });
   } catch (err) {
-    throw new Error(`Could not reach ${cfg.baseUrl} — ${err.message}.`, { cause: err });
+    throw new Error(`Could not reach ${cfg.baseUrl} — ${(err as Error).message}.`, {
+      cause: err,
+    });
   }
   if (!response.ok) throw await httpError(response, 'Provider');
 
-  const ids = ((await response.json())?.data || []).map((m) => m.id).filter(Boolean);
+  const listed: Array<{ id?: string }> = (await response.json())?.data || [];
+  const ids: string[] = listed.map((m) => m.id).filter((id): id is string => !!id);
   const tools = await toolSupport(cfg, ids);
 
   // A model that cannot call tools is useless to the agent, but the list may
   // simply be unannotated — so those sink to the bottom instead of vanishing.
   return ids
-    .map((id) => ({ id, tools: tools.has(id) ? tools.get(id) : null }))
-    .sort((a, b) => (a.tools === false) - (b.tools === false));
+    .map((id) => ({ id, tools: tools.has(id) ? (tools.get(id) ?? null) : null }))
+    .sort((a, b) => Number(a.tools === false) - Number(b.tools === false));
 }
 
 /**
@@ -380,12 +434,12 @@ export async function listModels(cfg) {
  * /api/show, so one model is probed first: if that endpoint is not there, the
  * rest are never asked and the list comes back unannotated.
  */
-async function toolSupport(cfg, ids) {
-  const found = new Map();
+async function toolSupport(cfg: ProviderConfig, ids: string[]) {
+  const found = new Map<string, boolean>();
   if (!ids.length) return found;
 
   const root = cfg.baseUrl.replace(/\/v\d+$/, '');
-  const ask = async (model) => {
+  const ask = async (model: string) => {
     const r = await fetch(`${root}/api/show`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -420,8 +474,19 @@ async function toolSupport(cfg, ids) {
  * `tool` turn. Thinking blocks are dropped; their signatures mean nothing to
  * another provider.
  */
-function toOpenAIMessages(system, messages) {
-  const out = [{ role: 'system', content: system }];
+interface OpenAIMessage {
+  role: string;
+  content: string;
+  tool_call_id?: string;
+  tool_calls?: Array<{
+    id: string;
+    type: 'function';
+    function: { name: string; arguments: string };
+  }>;
+}
+
+function toOpenAIMessages(system: string, messages: Message[]): OpenAIMessage[] {
+  const out: OpenAIMessage[] = [{ role: 'system', content: system }];
 
   for (const msg of messages) {
     if (typeof msg.content === 'string') {
@@ -441,7 +506,7 @@ function toOpenAIMessages(system, messages) {
         if (b.type !== 'tool_result') continue;
         out.push({
           role: 'tool',
-          tool_call_id: b.tool_use_id,
+          tool_call_id: String(b.tool_use_id),
           content: typeof b.content === 'string' ? b.content : JSON.stringify(b.content),
         });
       }
@@ -453,15 +518,15 @@ function toOpenAIMessages(system, messages) {
       .filter((b) => b.type === 'text')
       .map((b) => b.text)
       .join('');
-    const toolCalls = blocks
+    const toolCalls: NonNullable<OpenAIMessage['tool_calls']> = blocks
       .filter((b) => b.type === 'tool_use')
       .map((b) => ({
-        id: b.id,
-        type: 'function',
-        function: { name: b.name, arguments: JSON.stringify(b.input ?? {}) },
+        id: String(b.id),
+        type: 'function' as const,
+        function: { name: String(b.name), arguments: JSON.stringify(b.input ?? {}) },
       }));
 
-    const assistant = { role: 'assistant', content: text };
+    const assistant: OpenAIMessage = { role: 'assistant', content: text };
     if (toolCalls.length) assistant.tool_calls = toolCalls;
     out.push(assistant);
   }
@@ -469,21 +534,30 @@ function toOpenAIMessages(system, messages) {
   return out;
 }
 
-function toOpenAITools(tools) {
+function toOpenAITools(tools: ToolForApi[]) {
   return (tools || []).map((t) => ({
     type: 'function',
     function: { name: t.name, description: t.description, parameters: t.input_schema },
   }));
 }
 
-const STOP_REASONS = { tool_calls: 'tool_use', stop: 'end_turn', length: 'max_tokens' };
+const STOP_REASONS: Record<string, string> = {
+  tool_calls: 'tool_use',
+  stop: 'end_turn',
+  length: 'max_tokens',
+};
 
-async function streamOpenAI(cfg, req, port, signal) {
-  const headers = { 'content-type': 'application/json' };
+async function streamOpenAI(
+  cfg: ProviderConfig,
+  req: TurnRequest,
+  port: chrome.runtime.Port,
+  signal?: AbortSignal,
+): Promise<AssistantMessage> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
   // Ollama ignores auth entirely; hosted providers need the bearer token.
   if (cfg.apiKey) headers.authorization = `Bearer ${cfg.apiKey}`;
 
-  let response;
+  let response: Response;
   try {
     response = await fetch(`${cfg.baseUrl}/chat/completions`, {
       method: 'POST',
@@ -498,11 +572,11 @@ async function streamOpenAI(cfg, req, port, signal) {
       }),
     });
   } catch (err) {
-    if (err.name === 'AbortError') throw err;
+    if ((err as Error).name === 'AbortError') throw err;
     // A dead server and a revoked optional host both surface as a
     // bare "Failed to fetch", which tells the user nothing.
     throw new Error(
-      `Could not reach ${cfg.baseUrl} — ${err.message}. Check that the provider is running, ` +
+      `Could not reach ${cfg.baseUrl} — ${(err as Error).message}. Check that the provider is running, ` +
         'and grant its exact host from panel settings.',
       { cause: err },
     );
@@ -518,7 +592,10 @@ async function streamOpenAI(cfg, req, port, signal) {
  * fragment belongs to the call its id names, or to the call still being
  * streamed.
  */
-async function parseOpenAIStream(response, port) {
+async function parseOpenAIStream(
+  response: Response,
+  port: chrome.runtime.Port,
+): Promise<AssistantMessage> {
   let text = '';
   let thinking = '';
   const calls = new Map(); // call key → { id, name, args }
@@ -557,7 +634,8 @@ async function parseOpenAIStream(response, port) {
     }
 
     for (const tc of delta.tool_calls || []) {
-      const key = tc.index != null ? `#${tc.index}` : tc.id ? `id:${tc.id}` : (openCall ?? '#0');
+      const key: string =
+        tc.index != null ? `#${tc.index}` : tc.id ? `id:${tc.id}` : (openCall ?? '#0');
       openCall = key;
 
       const known = calls.get(key);
