@@ -2,7 +2,8 @@
  * The startup capability probe, and the chart events that keep it current,
  * against the real driver.js and bridge.js.
  */
-import { check, section, report as summarize } from './helpers/check.mjs';
+import { describe, it } from 'node:test';
+import assert from 'node:assert/strict';
 import { evaluate, makeWorlds, settle, tick } from './helpers/load.mjs';
 
 /**
@@ -78,74 +79,103 @@ function boot(flaky, chartOpts) {
   return { bridge: iso.TVAgentBridge, chart };
 }
 
-section('the chart does not answer straight away');
-{
+describe('the chart does not answer straight away', async () => {
   const { bridge } = boot(2);
   const r = await bridge.probeWhenReady();
-  check('symbol was read', r.symbol, 'BINGX:BTCUSDT.P');
-  check('resolution was waited for, not left null', r.resolution, '60');
-  check('the report is marked ready', r.ready, true);
-  check(
-    'no "Chart not ready" warning',
-    (r.warnings || []).filter((w) => /Chart not ready/.test(w)),
-    [],
-  );
-}
 
-section('the chart never answered');
-{
+  it('symbol was read', () => {
+    assert.deepStrictEqual(r.symbol, 'BINGX:BTCUSDT.P');
+  });
+
+  it('resolution was waited for, not left null', () => {
+    assert.deepStrictEqual(r.resolution, '60');
+  });
+
+  it('the report is marked ready', () => {
+    assert.deepStrictEqual(r.ready, true);
+  });
+
+  it('no "Chart not ready" warning', () => {
+    assert.deepStrictEqual(
+      (r.warnings || []).filter((w) => /Chart not ready/.test(w)),
+      [],
+    );
+  });
+});
+
+describe('the chart never answered', async () => {
   const { bridge } = boot(Infinity);
   const r = await bridge.probeWhenReady(2);
-  check('the report is not ready', !r.ready, true);
-  check(
-    'but the chart was found — the panel must not claim "no API"',
-    [r.tradingViewApi, r.chart],
-    [true, true],
-  );
-  check(
-    'the warning is there',
-    (r.warnings || []).some((w) => /Chart not ready/.test(w)),
-    true,
-  );
-  check('price is absent — the bars were never reached', 'price' in r, false);
-}
 
-section('the price in the report');
-{
+  it('the report is not ready', () => {
+    assert.deepStrictEqual(r.ready, false);
+  });
+
+  it('but the chart was found — the panel must not claim "no API"', () => {
+    assert.deepStrictEqual([r.tradingViewApi, r.chart], [true, true]);
+  });
+
+  it('the warning is there', () => {
+    assert.ok((r.warnings || []).some((w) => /Chart not ready/.test(w)));
+  });
+
+  it('price is absent — the bars were never reached', () => {
+    assert.deepStrictEqual('price' in r, false);
+  });
+});
+
+describe('the price in the report', async () => {
   const { bridge } = boot(0, { lastClose: 65432.1 });
   const r = await bridge.probeWhenReady();
-  check('series = true (bars are loaded)', r.series, true);
-  check('price is the last close', r.price, 65432.1);
-}
 
-section('bars not loaded yet: price is absent, not null');
-{
+  it('series = true (bars are loaded)', () => {
+    assert.deepStrictEqual(r.series, true);
+  });
+
+  it('price is the last close', () => {
+    assert.deepStrictEqual(r.price, 65432.1);
+  });
+});
+
+describe('bars not loaded yet: price is absent, not null', async () => {
   const { bridge } = boot(0, { hasBars: false });
   const r = await bridge.probeWhenReady();
-  check('series = false', r.series, false);
-  check('price is absent as a key, not merely undefined', 'price' in r, false);
-}
 
-section('the price read fails: series does not roll back with it');
-{
+  it('series = false', () => {
+    assert.deepStrictEqual(r.series, false);
+  });
+
+  it('price is absent as a key, not merely undefined', () => {
+    assert.deepStrictEqual('price' in r, false);
+  });
+});
+
+describe('the price read fails: series does not roll back with it', async () => {
   // isEmpty() already said false but last() throws anyway; series must not
   // roll back.
   const { bridge } = boot(0, { lastThrows: true });
   const r = await bridge.probeWhenReady();
-  check('series stays true despite the failed price read', r.series, true);
-  check('price is absent, and the probe did not fall over', 'price' in r, false);
-  check('the report is ready regardless', r.ready, true);
-}
 
-section('a symbol change pushes a fresh report');
-{
+  it('series stays true despite the failed price read', () => {
+    assert.deepStrictEqual(r.series, true);
+  });
+
+  it('price is absent, and the probe did not fall over', () => {
+    assert.deepStrictEqual('price' in r, false);
+  });
+
+  it('the report is ready regardless', () => {
+    assert.deepStrictEqual(r.ready, true);
+  });
+});
+
+describe('a symbol change pushes a fresh report', async () => {
   const { bridge, chart } = boot(0);
   const pushed = [];
   bridge.on('chart-changed', (r) => pushed.push(r));
 
   const first = await bridge.probeWhenReady();
-  check('the probe subscribed to the chart', chart.subscribers.symbol.length > 0, true);
-  check('bound to the symbol it started on', first.symbol, 'BINGX:BTCUSDT.P');
+  const subscribedAtOnce = chart.subscribers.symbol.length > 0;
 
   chart.switchTo('NASDAQ:AAPL', 'D');
   // The driver waits out both events and then waits for a report worth
@@ -153,13 +183,23 @@ section('a symbol change pushes a fresh report');
   await tick(400);
   await settle();
 
-  check('exactly one report was pushed for one switch', pushed.length, 1);
-  check(
-    'and it carries the new symbol',
-    [pushed[0]?.symbol, pushed[0]?.resolution],
-    ['NASDAQ:AAPL', 'D'],
-  );
-  check('still a complete report, not a fragment', pushed[0]?.ready, true);
-}
+  it('the probe subscribed to the chart', () => {
+    assert.ok(subscribedAtOnce);
+  });
 
-summarize();
+  it('bound to the symbol it started on', () => {
+    assert.deepStrictEqual(first.symbol, 'BINGX:BTCUSDT.P');
+  });
+
+  it('exactly one report was pushed for one switch', () => {
+    assert.deepStrictEqual(pushed.length, 1);
+  });
+
+  it('and it carries the new symbol', () => {
+    assert.deepStrictEqual([pushed[0]?.symbol, pushed[0]?.resolution], ['NASDAQ:AAPL', 'D']);
+  });
+
+  it('still a complete report, not a fragment', () => {
+    assert.deepStrictEqual(pushed[0]?.ready, true);
+  });
+});
