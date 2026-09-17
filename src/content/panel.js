@@ -9,7 +9,7 @@ import * as TVAgentChat from './panel-chat.js';
 import * as TVAgentMount from './panel-mount.js';
 import * as TVAgentSettings from './panel-settings.js';
 import * as TVAgentRuntime from './agent.js';
-import * as TVAgentModels from '../shared/models.js';
+import * as TVAgentModels from '../shared/models.ts';
 
 const SUGGESTIONS = [
   'What am I looking at?',

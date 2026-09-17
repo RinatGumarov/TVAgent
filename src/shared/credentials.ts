@@ -6,17 +6,27 @@
  * the worker (which has to read an unmigrated profile the same way).
  */
 
-import * as TVAgentModels from './models.js';
+import { isAnthropic } from './models.ts';
 
-const models = () => TVAgentModels;
+/** The raw `chrome.storage.local` contents this reads. */
+export interface StoredCredentials {
+  provider?: string;
+  apiKey?: string;
+  model?: string;
+  openaiApiKey?: string;
+  openaiModel?: string;
+}
 
-/**
- * @param {object} stored raw `chrome.storage.local` contents
- * @returns {{apiKey: string, model: string, openaiApiKey: string,
- *            openaiModel: string, changed: boolean}}
- *   `changed` is true only when the caller should write the result back.
- */
-function split(stored) {
+export interface SplitCredentials {
+  apiKey: string;
+  model: string;
+  openaiApiKey: string;
+  openaiModel: string;
+  /** True only when the caller should write the result back. */
+  changed: boolean;
+}
+
+export function split(stored: StoredCredentials | null | undefined): SplitCredentials {
   const s = stored || {};
   const key = s.apiKey || '';
   const model = s.model || '';
@@ -40,7 +50,7 @@ function split(stored) {
 
   // Under the other provider each half is decided on its own evidence.
   const keyIsAnthropic = key.startsWith('sk-ant-');
-  const modelIsAnthropic = models().isAnthropic(model);
+  const modelIsAnthropic = isAnthropic(model);
   return {
     apiKey: keyIsAnthropic ? key : '',
     model: modelIsAnthropic ? model : '',
@@ -49,5 +59,3 @@ function split(stored) {
     changed: true,
   };
 }
-
-export { split };

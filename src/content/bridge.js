@@ -6,8 +6,8 @@
  * every script on the page; a message without a stamp from the handshake in
  * shared/wire.js is ignored.
  */
-import * as wire from '../shared/wire.js';
-import { poll } from '../shared/wait.js';
+import * as wire from '../shared/wire.ts';
+import { poll } from '../shared/wait.ts';
 
 /** One bridge, handshake started. The entry hands it to the panel bundle. */
 export function createBridge() {

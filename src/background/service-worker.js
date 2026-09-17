@@ -8,9 +8,9 @@
  * blocks on the way in.
  */
 
-import * as TVAgentModels from '../shared/models.js';
-import * as TVAgentCredentials from '../shared/credentials.js';
-import * as TVAgentProviderURL from '../shared/provider-url.js';
+import * as TVAgentModels from '../shared/models.ts';
+import * as TVAgentCredentials from '../shared/credentials.ts';
+import * as TVAgentProviderURL from '../shared/provider-url.ts';
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULTS = {

@@ -5,8 +5,8 @@
  * the content script over an authenticated postMessage channel (see
  * shared/wire.js). Only the own methods of HANDLERS can be invoked.
  */
-import * as wire from '../shared/wire.js';
-import { poll } from '../shared/wait.js';
+import * as wire from '../shared/wire.ts';
+import { poll } from '../shared/wait.ts';
 
 /** Mints the secret, registers the handlers and announces the driver. */
 export function startDriver() {

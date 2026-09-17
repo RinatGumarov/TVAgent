@@ -4,9 +4,17 @@
  * process on this machine.
  */
 
-function parse(value) {
+export interface ProviderURL {
+  /** The endpoint, trailing slashes removed. */
+  baseUrl: string;
+  /** The one host permission this endpoint needs, and no wider. */
+  permission: string;
+  loopback: boolean;
+}
+
+export function parse(value: unknown): ProviderURL {
   const raw = String(value || '').trim();
-  let url;
+  let url: URL;
   try {
     url = new URL(raw);
   } catch (err) {
@@ -35,5 +43,3 @@ function parse(value) {
   const permission = `${url.protocol}//${url.hostname}/*`;
   return { baseUrl, permission, loopback };
 }
-
-export { parse };

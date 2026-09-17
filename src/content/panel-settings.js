@@ -6,9 +6,9 @@
  * secretField.
  */
 
-import * as TVAgentModels from '../shared/models.js';
-import * as TVAgentCredentials from '../shared/credentials.js';
-import * as TVAgentProviderURL from '../shared/provider-url.js';
+import * as TVAgentModels from '../shared/models.ts';
+import * as TVAgentCredentials from '../shared/credentials.ts';
+import * as TVAgentProviderURL from '../shared/provider-url.ts';
 
 const KEYS = [
   'apiKey',

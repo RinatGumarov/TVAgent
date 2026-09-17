@@ -11,6 +11,9 @@
  * driver's place, and the driver answers each request id once.
  */
 
+/** Which end a message came from; a request's stamp is not its answer's. */
+export type WireRole = 'req' | 'res' | 'evt';
+
 const SUBTLE = globalThis.crypto && globalThis.crypto.subtle;
 
 /** Content script → driver, expecting a RES. */
@@ -26,7 +29,7 @@ export const HELLO = 'tva-hello';
  * Unguessable, because a page script that could guess a request id could
  * answer a request it never saw.
  */
-export function id() {
+export function id(): string {
   if (globalThis.crypto && globalThis.crypto.randomUUID) return globalThis.crypto.randomUUID();
   const bytes = new Uint8Array(18);
   globalThis.crypto.getRandomValues(bytes);
@@ -34,7 +37,7 @@ export function id() {
 }
 
 /** The shared secret, as an HMAC key both ends can sign with. */
-export async function key(secret) {
+export async function key(secret: string): Promise<CryptoKey> {
   return SUBTLE.importKey(
     'raw',
     new TextEncoder().encode(secret),
@@ -48,7 +51,7 @@ export async function key(secret) {
  * What a stamp covers besides the id: the verb and its payload, as JSON, so a
  * stamp lifted off one request cannot be pasted onto another.
  */
-export function body(verb, payload) {
+export function body(verb: string, payload?: unknown): string {
   return JSON.stringify([verb, payload === undefined ? null : payload]);
 }
 
@@ -56,7 +59,12 @@ export function body(verb, payload) {
  * The stamp on one message. `role` separates a request from its response, so
  * seeing the request's stamp never tells anyone the response's.
  */
-export async function stamp(hmacKey, messageId, role, signedBody = '') {
+export async function stamp(
+  hmacKey: CryptoKey,
+  messageId: string,
+  role: WireRole,
+  signedBody = '',
+): Promise<string> {
   const mac = await SUBTLE.sign(
     'HMAC',
     hmacKey,
