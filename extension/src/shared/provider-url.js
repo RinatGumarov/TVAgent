@@ -11,8 +11,8 @@
     let url;
     try {
       url = new URL(raw);
-    } catch (_) {
-      throw new Error('Enter a valid URL, such as http://localhost:11434/v1.');
+    } catch (err) {
+      throw new Error('Enter a valid URL, such as http://localhost:11434/v1.', { cause: err });
     }
 
     if (url.protocol !== 'http:' && url.protocol !== 'https:') {

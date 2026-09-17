@@ -10,7 +10,6 @@ import {
   click,
   fireInput,
   fireKeydown,
-  textOf,
 } from './helpers/dom.mjs';
 import { readSource } from './helpers/load.mjs';
 

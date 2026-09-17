@@ -69,7 +69,8 @@ function makeClassList(el) {
       const want = force === undefined ? !has : !!force;
       if (want !== has) {
         const s = new Set(parts());
-        want ? s.add(c) : s.delete(c);
+        if (want) s.add(c);
+        else s.delete(c);
         write(s);
       }
       return want;

@@ -266,7 +266,7 @@ section('lifecycle: startRun / endRun / clear');
   let threw = false;
   try {
     chat.endRun();
-  } catch (e) {
+  } catch (_) {
     threw = true;
   }
   check('endRun() on a run with no tool call does not throw', threw, false);

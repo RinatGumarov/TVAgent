@@ -181,7 +181,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
 /** Turns a non-2xx response into an error carrying whatever detail the server gave. */
 async function httpError(response, label) {
-  let detail = '';
+  let detail;
   try {
     const data = await response.json();
     detail = data?.error?.message || JSON.stringify(data);
@@ -348,7 +348,7 @@ async function listModels(cfg) {
   try {
     response = await fetch(`${cfg.baseUrl}/models`, { headers, signal: AbortSignal.timeout(8000) });
   } catch (err) {
-    throw new Error(`Could not reach ${cfg.baseUrl} — ${err.message}.`);
+    throw new Error(`Could not reach ${cfg.baseUrl} — ${err.message}.`, { cause: err });
   }
   if (!response.ok) throw await httpError(response, 'Provider');
 
@@ -482,7 +482,8 @@ async function streamOpenAI(cfg, req, port, signal) {
     // bare "Failed to fetch", which tells the user nothing.
     throw new Error(
       `Could not reach ${cfg.baseUrl} — ${err.message}. Check that the provider is running, ` +
-      'and grant its exact host from panel settings.'
+        'and grant its exact host from panel settings.',
+      { cause: err }
     );
   }
 
@@ -558,7 +559,7 @@ async function parseOpenAIStream(response, port) {
 
   let synthesized = 0;
   for (const call of calls.values()) {
-    let input = {};
+    let input;
     try {
       input = call.args ? JSON.parse(call.args) : {};
     } catch (_) {

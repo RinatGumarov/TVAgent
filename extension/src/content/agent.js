@@ -57,7 +57,7 @@ How to answer:
       // First, and synchronously: whatever the abandoned loop is parked on
       // resumes after this returns, and this is what tells it to stop.
       this.#run++;
-      if (this.port) { try { this.port.disconnect(); } catch (_) {} this.port = null; }
+      if (this.port) { try { this.port.disconnect(); } catch (_) { /* already disconnected */ } this.port = null; }
       // Disconnecting our own end never fires onDisconnect, so settle the
       // in-flight turn by hand or #loop() would await it forever.
       this.abortTurn?.(new Error('cancelled'));
@@ -173,7 +173,7 @@ How to answer:
         this.abortTurn = reject;
 
         const settle = (fn) => {
-          try { port.disconnect(); } catch (_) {}
+          try { port.disconnect(); } catch (_) { /* already disconnected */ }
           if (this.port === port) {
             this.port = null;
             this.abortTurn = null;

@@ -414,7 +414,7 @@
     window.addEventListener('pagehide', () => {
       try {
         teardown();
-      } catch (e) {
+      } catch (_) {
         /* the document is going away anyway */
       }
     });

@@ -263,13 +263,11 @@ section('bfcache restore: the remount fails');
   const win = makeWindow();
   const chr = makeChrome();
   let shouldFail = false;
-  let mountCalls = 0;
   let activeHandler = null;
   const bridge = {
     on(type, fn) { if (type === 'widgetbar-active') activeHandler = fn; },
     async call(method) {
       if (method === 'widgetbar_mount') {
-        mountCalls++;
         if (shouldFail) throw new Error('TradingView widget bar is not on this page (anonymous session?).');
         return { ok: true, pageId: makeMountedPage(doc).id };
       }
