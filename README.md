@@ -10,13 +10,21 @@ Ask it "add EMA 50 and 200", "mark the high and low of the visible range", or
 
 ## Install
 
-TVAgent is not on the Chrome Web Store yet, so it is loaded unpacked:
+TVAgent is not on the Chrome Web Store yet, so it is loaded unpacked.
 
-1. Clone this repository, or unzip a [release](https://github.com/RinatGumarov/TVAgent/releases).
-2. Open `chrome://extensions` and turn on **Developer mode**.
-3. Click **Load unpacked** and select the `extension/` folder.
+From a [release](https://github.com/RinatGumarov/TVAgent/releases): unzip it,
+open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**
+and select the unzipped folder.
 
-Chrome 111 or newer is required.
+From source, build it first:
+
+```bash
+npm ci && npm run build
+```
+
+Then **Load unpacked** and select `build/extension/`.
+
+Chrome 111 or newer is required. Building needs Node 22.18 or newer.
 
 ## Use
 
@@ -81,13 +89,13 @@ Pine tools in a session without the Pine editor, are not offered.
 └────────────────────────┘
 ```
 
-- **Driver** (`extension/src/injected/driver.js`) is the only code that
+- **Driver** (`src/injected/driver.ts`) is the only code that
   touches `window.TradingViewApi`. It exposes a fixed set of methods.
-- **Panel** (`extension/src/content/`) is the chat UI, the agent loop, the
+- **Panel** (`src/content/`) is the chat UI, the agent loop, the
   tool schemas and the permission levels. It reaches the driver over
   `postMessage`, which every script on the page can see, so the two ends agree
   a secret at `document_start` and stamp every message with an HMAC.
-- **Background worker** (`extension/src/background/service-worker.js`)
+- **Background worker** (`src/background/service-worker.ts`)
   attaches the API key and streams the model's response. The key never
   reaches the page.
 
@@ -101,16 +109,33 @@ Pine tools in a session without the Pine editor, are not offered.
 
 ## Development
 
-The tests run on plain Node with no dependencies. They read the extension
-sources from disk and evaluate them under a fake DOM and a fake `chrome.*`:
-
 ```bash
-bash tools/test.sh
+npm ci
+npm run build        # build/extension/, loadable unpacked
+npm run build:watch
+npm test
+npm run typecheck
+npm run lint
+npm run package      # dist/tvagent-<version>.zip
 ```
 
-`extension/src/shared/` is copied into `extension/src/injected/` by
-`tools/sync-worlds.sh`, because Chrome cannot load one file into two worlds.
-`tools/package.sh` builds the store zip.
+```
+src/entries/     one file per bundle; side effects only
+src/injected/    the page-world driver
+src/content/     the panel, the agent loop, the bridge
+src/shared/      the wire protocol, the model catalog, the URL policy
+src/background/  the worker that holds the key
+src/types/       TradingView's undocumented API, declared
+static/          manifest.json, icons, panel.css — copied as they are
+```
+
+esbuild builds four bundles. `src/shared/wire.ts` is imported by both the
+driver and the bridge, so each world gets its own copy of it and the two
+cannot drift.
+
+The tests run on Node's own test runner with no framework. They bundle the
+real modules and run them under a fake DOM and a fake `chrome.*`, so what they
+exercise is what ships.
 
 To log every driver call to the page console, set
 `localStorage['tv-agent-debug'] = '1'` on the chart page and reload.

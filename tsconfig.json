@@ -10,7 +10,7 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
-    "types": ["chrome", "node"]
+    "types": ["chrome"]
   },
-  "include": ["src", "tests", "tools", "eslint.config.js"]
+  "include": ["src"]
 }
