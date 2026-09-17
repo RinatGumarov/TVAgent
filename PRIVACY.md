@@ -10,13 +10,13 @@ It has no backend. There is no TVAgent server, no account, and no analytics.
 Everything is stored with `chrome.storage.local`, on your machine only. Nothing
 is synced to a Google account or transmitted to the developer.
 
-| Stored | Why |
-|---|---|
-| Your LLM API key | To authenticate your requests to the model provider you chose |
-| Provider, model name, base URL and reasoning effort | Your model settings |
-| `autoApprove` flag | Whether Level 2 actions ask for confirmation |
-| Data-disclosure consent flag | Whether you accepted the current in-product disclosure |
-| Panel width | To restore the panel at the size you left it |
+| Stored                                              | Why                                                           |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| Your LLM API key                                    | To authenticate your requests to the model provider you chose |
+| Provider, model name, base URL and reasoning effort | Your model settings                                           |
+| `autoApprove` flag                                  | Whether Level 2 actions ask for confirmation                  |
+| Data-disclosure consent flag                        | Whether you accepted the current in-product disclosure        |
+| Panel width                                         | To restore the panel at the size you left it                  |
 
 Conversations are not written to disk. They live in the panel for the current
 tab and are gone when you close or reload it.
@@ -69,11 +69,11 @@ configured.
 For the Chrome Web Store disclosure form, TVAgent handles these categories only
 to provide its user-facing chart assistant:
 
-| Category | What it means in TVAgent |
-|---|---|
-| Authentication information | The LLM API key you enter and keep in local extension storage |
-| Website content | Chart context, recent OHLCV bars, indicators, drawings, strategy values and requested Pine source |
-| User-generated content / personal communications | Prompts and the in-memory conversation sent to the provider you select |
+| Category                                         | What it means in TVAgent                                                                          |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Authentication information                       | The LLM API key you enter and keep in local extension storage                                     |
+| Website content                                  | Chart context, recent OHLCV bars, indicators, drawings, strategy values and requested Pine source |
+| User-generated content / personal communications | Prompts and the in-memory conversation sent to the provider you select                            |
 
 TVAgent does not sell data, use it for advertising or creditworthiness, or
 transfer it for any purpose unrelated to the chart assistant. The use of
@@ -82,13 +82,13 @@ Data Policy, including the Limited Use requirements.
 
 ## Permissions, and why each is needed
 
-| Permission | Why |
-|---|---|
-| `storage` | Save your settings and API key locally |
-| TradingView content-script match: `https://*.tradingview.com/chart/*` | Load the product only on chart pages and run the fixed chart tools requested by the user |
-| `https://api.anthropic.com/*` | Send your requests to Anthropic when Anthropic is the selected provider |
-| `http://localhost/*`, `http://127.0.0.1/*` (optional) | Reach a local model server only after you configure and allow it |
-| `https://*/*` (optional declaration) | Let Chrome grant only the exact HTTPS provider host you enter; the extension never requests every HTTPS host at runtime |
+| Permission                                                            | Why                                                                                                                     |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `storage`                                                             | Save your settings and API key locally                                                                                  |
+| TradingView content-script match: `https://*.tradingview.com/chart/*` | Load the product only on chart pages and run the fixed chart tools requested by the user                                |
+| `https://api.anthropic.com/*`                                         | Send your requests to Anthropic when Anthropic is the selected provider                                                 |
+| `http://localhost/*`, `http://127.0.0.1/*` (optional)                 | Reach a local model server only after you configure and allow it                                                        |
+| `https://*/*` (optional declaration)                                  | Let Chrome grant only the exact HTTPS provider host you enter; the extension never requests every HTTPS host at runtime |
 
 The extension runs only on the TradingView chart pages declared in its static
 content-script matches. It does not request a separate TradingView host

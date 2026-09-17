@@ -20,7 +20,11 @@ function fresh() {
 
 /** The rendered text of the assistant message, as a reader would see it. */
 const assistantText = (listEl) =>
-  listEl.querySelectorAll('.tva-msg').filter((n) => n.className.includes('assistant')).map((n) => n.textContent).join('');
+  listEl
+    .querySelectorAll('.tva-msg')
+    .filter((n) => n.className.includes('assistant'))
+    .map((n) => n.textContent)
+    .join('');
 
 section('streaming text');
 
@@ -34,7 +38,11 @@ function stream(chat, text, size) {
   chat.startRun();
   stream(chat, 'Added EMA 50 and EMA 200 to the chart.', 3);
   chat.endRun();
-  check('plain prose arrives whole', assistantText(listEl), 'Added EMA 50 and EMA 200 to the chart.');
+  check(
+    'plain prose arrives whole',
+    assistantText(listEl),
+    'Added EMA 50 and EMA 200 to the chart.',
+  );
 }
 
 {
@@ -46,7 +54,11 @@ function stream(chat, text, size) {
   const pre = findTag(listEl, 'PRE');
   check('the fenced block became a <pre>', !!pre, true);
   check('with the language tag stripped and the body intact', pre.textContent, 'strategy("x")\n');
-  check('and the prose around it survived', assistantText(listEl).includes('Here is the script:'), true);
+  check(
+    'and the prose around it survived',
+    assistantText(listEl).includes('Here is the script:'),
+    true,
+  );
   check('including what came after the fence', assistantText(listEl).includes('Done.'), true);
 }
 
@@ -62,7 +74,11 @@ function stream(chat, text, size) {
   const pre = findTag(listEl, 'PRE');
   check('a fence split across deltas is still a fence', !!pre, true);
   check('its body is the code', pre.textContent, 'code\n');
-  check('and no stray backticks leaked into the prose', assistantText(listEl).includes('``'), false);
+  check(
+    'and no stray backticks leaked into the prose',
+    assistantText(listEl).includes('``'),
+    false,
+  );
 }
 
 /**
@@ -71,7 +87,7 @@ function stream(chat, text, size) {
  */
 {
   const cuts = {
-    'whole': ['Here is the script:\n```js\nstrategy("x")\n```\nDone.'],
+    whole: ['Here is the script:\n```js\nstrategy("x")\n```\nDone.'],
     'fence alone': ['Here is the script:\n', '```', 'js\nstrategy("x")\n', '```', '\nDone.'],
     'fence 1+2': ['Here is the script:\n`', '``js\nstrategy("x")\n`', '``\nDone.'],
     'fence 2+1': ['Here is the script:\n``', '`js\nstrategy("x")\n``', '`\nDone.'],
@@ -84,7 +100,11 @@ function stream(chat, text, size) {
     const pre = findTag(listEl, 'PRE');
     check(`${how}: the block opened`, !!pre, true);
     check(`${how}: its body is the code`, pre && pre.textContent, 'strategy("x")\n');
-    check(`${how}: no backticks leaked into the prose`, assistantText(listEl).includes('``'), false);
+    check(
+      `${how}: no backticks leaked into the prose`,
+      assistantText(listEl).includes('``'),
+      false,
+    );
   }
 }
 
@@ -94,7 +114,11 @@ function stream(chat, text, size) {
   stream(chat, 'markup <script>alert(1)</script> and <img src=x>', 5);
   chat.endRun();
   check('streamed markup produced no live element', findDangerousTag(listEl), null);
-  check('and reads back as the text it was', assistantText(listEl), 'markup <script>alert(1)</script> and <img src=x>');
+  check(
+    'and reads back as the text it was',
+    assistantText(listEl),
+    'markup <script>alert(1)</script> and <img src=x>',
+  );
 }
 
 {
@@ -107,7 +131,11 @@ function stream(chat, text, size) {
   chat.onText('a lot more prose after the block');
   chat.onText(' and more still');
   const after = listEl.querySelectorAll('.tva-msg')[0].children.slice(0, 2);
-  check('the nodes before the tail are the same objects', [after[0] === closed[0], after[1] === closed[1]], [true, true]);
+  check(
+    'the nodes before the tail are the same objects',
+    [after[0] === closed[0], after[1] === closed[1]],
+    [true, true],
+  );
   chat.endRun();
 }
 
@@ -136,12 +164,12 @@ section('what really arrives from the model does not reach the DOM as tags');
   check(
     'the name reads back as the text it was',
     listEl.querySelector('.tva-call-name').textContent,
-    evilName
+    evilName,
   );
   check(
     'an input with a quote and a <script> stayed text inside the <pre>',
     listEl.querySelector('.tva-call-body').textContent,
-    JSON.stringify(evilInput, null, 2)
+    JSON.stringify(evilInput, null, 2),
   );
 }
 
@@ -153,7 +181,11 @@ section('what really arrives from the model does not reach the DOM as tags');
 
   check('an error carrying markup produced no tag at all', findDangerousTag(listEl), null);
   check('nor a <b> — a tag from another template in this module', findTag(listEl, 'b'), null);
-  check('the node holds text and nothing else', el.children.every((c) => c.nodeType === 'text'), true);
+  check(
+    'the node holds text and nothing else',
+    el.children.every((c) => c.nodeType === 'text'),
+    true,
+  );
   check('and the error reads back as written', el.textContent, evilError);
 }
 
@@ -177,7 +209,11 @@ section('one run row for N calls, not N boxes');
   const { listEl, chat } = fresh();
   chat.startRun();
   chat.onToolStart({ id: 'a', name: 'get_chart', input: {} });
-  check('one call is "1 action", singular', listEl.querySelector('.tva-run-label').textContent, '1 action');
+  check(
+    'one call is "1 action", singular',
+    listEl.querySelector('.tva-run-label').textContent,
+    '1 action',
+  );
 }
 
 // -------------------------------------------------------------- onToolResult
@@ -191,7 +227,11 @@ section('onToolResult');
   chat.onToolResult({ id: 'f', ok: false, result: 'boom' });
 
   check('a failure unfolds the run row', listEl.querySelector('.tva-run').open, true);
-  check('and the call is marked failed', listEl.querySelector('.tva-call-status').textContent, 'failed');
+  check(
+    'and the call is marked failed',
+    listEl.querySelector('.tva-call-status').textContent,
+    'failed',
+  );
 }
 
 {
@@ -201,7 +241,11 @@ section('onToolResult');
   chat.onToolResult({ id: 's', ok: true, result: 'fine' });
 
   check('a success leaves it folded', listEl.querySelector('.tva-run').open, false);
-  check('and the call is marked done', listEl.querySelector('.tva-call-status').textContent, 'done');
+  check(
+    'and the call is marked done',
+    listEl.querySelector('.tva-call-status').textContent,
+    'done',
+  );
 }
 
 {
@@ -217,7 +261,7 @@ section('onToolResult');
   check(
     'the call body holds the result as literal text',
     listEl.querySelector('.tva-call-body').textContent.includes(evilResult),
-    true
+    true,
   );
 }
 
@@ -254,7 +298,11 @@ section('lifecycle: startRun / endRun / clear');
   const labels = listEl.querySelectorAll('.tva-run-label').map((n) => n.textContent);
   check('each counts its own actions, with nothing carried over', labels, ['1 action', '1 action']);
   const marks = listEl.querySelectorAll('.tva-run-mark');
-  check('both are marked done', marks.every((m) => m.classList.contains('done')), true);
+  check(
+    'both are marked done',
+    marks.every((m) => m.classList.contains('done')),
+    true,
+  );
 }
 
 {
@@ -282,8 +330,16 @@ section('lifecycle: startRun / endRun / clear');
   check('clear() empties the list even mid-run', listEl.children.length, 0);
 
   chat.onToolStart({ id: 'c', name: 'third', input: {} });
-  check('a call after clear() opens a fresh run rather than going nowhere', listEl.querySelectorAll('.tva-run').length, 1);
-  check('with exactly one action in it', listEl.querySelector('.tva-run-label').textContent, '1 action');
+  check(
+    'a call after clear() opens a fresh run rather than going nowhere',
+    listEl.querySelectorAll('.tva-run').length,
+    1,
+  );
+  check(
+    'with exactly one action in it',
+    listEl.querySelector('.tva-run-label').textContent,
+    '1 action',
+  );
 }
 
 // -------------------------------------------------------------- onConfirm
@@ -296,12 +352,20 @@ section('onConfirm');
   const promise = chat.onConfirm({ name: 'set_pine_code', input: { code: 'strategy()' } });
   const confirmEl = listEl.querySelector('.tva-confirm-head').parent;
 
-  check('the buttons are there until it is answered', confirmEl.querySelector('.tva-confirm-actions') !== null, true);
+  check(
+    'the buttons are there until it is answered',
+    confirmEl.querySelector('.tva-confirm-actions') !== null,
+    true,
+  );
   click(confirmEl.querySelector('[data-yes]'));
 
   check('Allow resolves the promise true', await promise, true);
   check('the buttons are gone afterwards', confirmEl.querySelector('.tva-confirm-actions'), null);
-  check('and the outcome is written', confirmEl.querySelector('.tva-confirm-outcome').textContent, 'Allowed');
+  check(
+    'and the outcome is written',
+    confirmEl.querySelector('.tva-confirm-outcome').textContent,
+    'Allowed',
+  );
 }
 
 {
@@ -313,7 +377,11 @@ section('onConfirm');
 
   check('Deny resolves the promise false', await promise, false);
   check('the buttons are gone afterwards', confirmEl.querySelector('.tva-confirm-actions'), null);
-  check('and the outcome is written', confirmEl.querySelector('.tva-confirm-outcome').textContent, 'Denied');
+  check(
+    'and the outcome is written',
+    confirmEl.querySelector('.tva-confirm-outcome').textContent,
+    'Denied',
+  );
 }
 
 {
@@ -326,7 +394,11 @@ section('onConfirm');
 
   check('ending the run answers the card', await promise, false);
   const confirmEl = listEl.querySelector('.tva-confirm-head').parent;
-  check('and says so on the card', confirmEl.querySelector('.tva-confirm-outcome').textContent, 'Stopped');
+  check(
+    'and says so on the card',
+    confirmEl.querySelector('.tva-confirm-outcome').textContent,
+    'Stopped',
+  );
   check('the buttons are gone', confirmEl.querySelector('.tva-confirm-actions'), null);
 }
 
@@ -347,9 +419,21 @@ section('the list does not grow without bound');
   for (let i = 0; i < 500; i++) chat.user(`message ${i}`);
 
   check('the row count is capped', listEl.children.length <= 301, true);
-  check('the newest message is still there', descendants(listEl).some((n) => n.nodeType === 'text' && n.text === 'message 499'), true);
-  check('the oldest is gone', descendants(listEl).some((n) => n.nodeType === 'text' && n.text === 'message 0'), false);
-  check('and the trim is announced rather than silent', listEl.querySelectorAll('.tva-trimmed').length, 1);
+  check(
+    'the newest message is still there',
+    descendants(listEl).some((n) => n.nodeType === 'text' && n.text === 'message 499'),
+    true,
+  );
+  check(
+    'the oldest is gone',
+    descendants(listEl).some((n) => n.nodeType === 'text' && n.text === 'message 0'),
+    false,
+  );
+  check(
+    'and the trim is announced rather than silent',
+    listEl.querySelectorAll('.tva-trimmed').length,
+    1,
+  );
 }
 
 report();

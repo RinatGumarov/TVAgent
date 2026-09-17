@@ -8,11 +8,7 @@
  * blocks on the way in.
  */
 
-importScripts(
-  '/src/shared/models.js',
-  '/src/shared/credentials.js',
-  '/src/shared/provider-url.js'
-);
+importScripts('/src/shared/models.js', '/src/shared/credentials.js', '/src/shared/provider-url.js');
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULTS = {
@@ -31,7 +27,13 @@ const MAX_TOKENS = 32000;
  */
 async function settings() {
   const s = await chrome.storage.local.get([
-    'apiKey', 'model', 'effort', 'provider', 'baseUrl', 'openaiApiKey', 'openaiModel',
+    'apiKey',
+    'model',
+    'effort',
+    'provider',
+    'baseUrl',
+    'openaiApiKey',
+    'openaiModel',
     'dataDisclosureAccepted',
   ]);
   const provider = s.provider || DEFAULTS.provider;
@@ -67,7 +69,8 @@ function configError(cfg, { requireModel = true } = {}) {
   }
   // Local providers authenticate with nothing at all, so a key is never
   // required here — but nothing can be called without a model and a URL.
-  if (!cfg.baseUrl) return 'No base URL set. Open the panel settings and point it at your provider.';
+  if (!cfg.baseUrl)
+    return 'No base URL set. Open the panel settings and point it at your provider.';
   if (cfg.baseUrlError) return cfg.baseUrlError;
   try {
     TVAgentProviderURL.parse(cfg.baseUrl);
@@ -168,9 +171,10 @@ chrome.runtime.onConnect.addListener((port) => {
     }
 
     try {
-      const message = cfg.provider === 'anthropic'
-        ? await streamAnthropic(cfg, msg, port, aborter.signal)
-        : await streamOpenAI(cfg, msg, port, aborter.signal);
+      const message =
+        cfg.provider === 'anthropic'
+          ? await streamAnthropic(cfg, msg, port, aborter.signal)
+          : await streamOpenAI(cfg, msg, port, aborter.signal);
       port.postMessage({ type: 'done', message });
     } catch (err) {
       if (err.name === 'AbortError') return;
@@ -212,7 +216,11 @@ async function* sseEvents(response) {
       if (!line.startsWith('data:')) continue;
       const payload = line.slice(5).trim();
       if (!payload || payload === '[DONE]') continue;
-      try { yield JSON.parse(payload); } catch (_) { /* keep-alive or partial */ }
+      try {
+        yield JSON.parse(payload);
+      } catch (_) {
+        /* keep-alive or partial */
+      }
     }
   }
 }
@@ -391,7 +399,9 @@ async function toolSupport(cfg, ids) {
 
   const rest = ids.slice(1);
   const answers = await Promise.all(rest.map((id) => ask(id).catch(() => null)));
-  rest.forEach((id, i) => { if (answers[i] !== null) found.set(id, answers[i]); });
+  rest.forEach((id, i) => {
+    if (answers[i] !== null) found.set(id, answers[i]);
+  });
   return found;
 }
 
@@ -418,7 +428,10 @@ function toOpenAIMessages(system, messages) {
 
     if (msg.role === 'user') {
       // A user turn is either plain text or a batch of tool results, never both.
-      const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('');
+      const text = blocks
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
       for (const b of blocks) {
         if (b.type !== 'tool_result') continue;
         out.push({
@@ -431,7 +444,10 @@ function toOpenAIMessages(system, messages) {
       continue;
     }
 
-    const text = blocks.filter((b) => b.type === 'text').map((b) => b.text).join('');
+    const text = blocks
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text)
+      .join('');
     const toolCalls = blocks
       .filter((b) => b.type === 'tool_use')
       .map((b) => ({
@@ -483,7 +499,7 @@ async function streamOpenAI(cfg, req, port, signal) {
     throw new Error(
       `Could not reach ${cfg.baseUrl} — ${err.message}. Check that the provider is running, ` +
         'and grant its exact host from panel settings.',
-      { cause: err }
+      { cause: err },
     );
   }
 
@@ -518,22 +534,25 @@ async function parseOpenAIStream(response, port) {
     // implemented the compatibility layer.
     const reasoning = delta.reasoning ?? delta.reasoning_content;
     if (reasoning) {
-      if (!startedThinking) { port.postMessage({ type: 'block_start', blockType: 'thinking' }); startedThinking = true; }
+      if (!startedThinking) {
+        port.postMessage({ type: 'block_start', blockType: 'thinking' });
+        startedThinking = true;
+      }
       thinking += reasoning;
       port.postMessage({ type: 'thinking', delta: reasoning });
     }
 
     if (delta.content) {
-      if (!startedText) { port.postMessage({ type: 'block_start', blockType: 'text' }); startedText = true; }
+      if (!startedText) {
+        port.postMessage({ type: 'block_start', blockType: 'text' });
+        startedText = true;
+      }
       text += delta.content;
       port.postMessage({ type: 'text', delta: delta.content });
     }
 
     for (const tc of delta.tool_calls || []) {
-      const key =
-        tc.index != null ? `#${tc.index}`
-        : tc.id ? `id:${tc.id}`
-        : openCall ?? '#0';
+      const key = tc.index != null ? `#${tc.index}` : tc.id ? `id:${tc.id}` : (openCall ?? '#0');
       openCall = key;
 
       const known = calls.get(key);
@@ -550,7 +569,8 @@ async function parseOpenAIStream(response, port) {
       if (!known) port.postMessage({ type: 'block_start', blockType: 'tool_use', name: call.name });
     }
 
-    if (choice.finish_reason) stopReason = STOP_REASONS[choice.finish_reason] || choice.finish_reason;
+    if (choice.finish_reason)
+      stopReason = STOP_REASONS[choice.finish_reason] || choice.finish_reason;
   }
 
   const content = [];

@@ -62,7 +62,7 @@ const DOCUMENT_SELECTORS = ['.widgetbar-pagescontent', '[data-name="right-toolba
 function unknownSelector(sel, known) {
   return new Error(
     `the fake does not know the selector ${JSON.stringify(sel)} (it knows ${known.join(', ')}) — ` +
-      'update it deliberately, alongside the driver'
+      'update it deliberately, alongside the driver',
   );
 }
 
@@ -81,7 +81,9 @@ function node(tag, attrs = {}) {
     className: '',
     textContent: '',
     id: '',
-    setAttribute: (k, v) => { e.attrs[k] = String(v); },
+    setAttribute: (k, v) => {
+      e.attrs[k] = String(v);
+    },
     getAttribute: (k) => (k in e.attrs ? e.attrs[k] : null),
     classList: {
       add: (c) => e.classes.add(c),
@@ -213,7 +215,9 @@ function makeDelayedFullDocument(toolbar = makeToolbar()) {
   return {
     ...full,
     querySelector: (sel) => (ready ? full.querySelector(sel) : null),
-    reveal: () => { ready = true; },
+    reveal: () => {
+      ready = true;
+    },
   };
 }
 
@@ -371,14 +375,13 @@ function load({ layout, document: doc = makeDocument(), isAuthenticated = false,
 
   // setTimeout is a sandbox parameter because the driver calls it as a bare
   // identifier; only the exhausted-budget test substitutes one.
-  new Function(
-    'window',
-    'document',
-    'localStorage',
-    'performance',
-    'setTimeout',
-    src
-  )(win, doc, localStorage, { now: () => 0 }, setTimeoutImpl || setTimeout);
+  new Function('window', 'document', 'localStorage', 'performance', 'setTimeout', src)(
+    win,
+    doc,
+    localStorage,
+    { now: () => 0 },
+    setTimeoutImpl || setTimeout,
+  );
   return {
     call: win.__tvAgent.call,
     adopt: win.__tvAgent.__adopt,
@@ -425,7 +428,12 @@ section('mounting');
   const doc = makeFullDocument();
   doc.querySelector = (sel) => (sel === '.widgetbar-pagescontent' ? doc.content : null);
   const L = makeLayout(3, doc);
-  const { call } = load({ layout: L, document: doc, isAuthenticated: true, setTimeoutImpl: instantTimer });
+  const { call } = load({
+    layout: L,
+    document: doc,
+    isAuthenticated: true,
+    setTimeoutImpl: instantTimer,
+  });
   const err = await failure(() => call('widgetbar_mount'));
   check('with no toolbar, mounting refuses on the timeout', /timed out/i.test(err), true);
   check('no page was created at all', L.calls, []);
@@ -446,8 +454,11 @@ section('mounting');
 
   const btn = doc.toolbar.children.find((c) => c.attrs['data-name'] === 'tva-agent');
   const filler = doc.toolbar.children.find((c) => c.tagName !== 'BUTTON');
-  check('the button went into the top group, before the filler',
-    doc.toolbar.children.indexOf(btn) + 1, doc.toolbar.children.indexOf(filler));
+  check(
+    'the button went into the top group, before the filler',
+    doc.toolbar.children.indexOf(btn) + 1,
+    doc.toolbar.children.indexOf(filler),
+  );
   check('the button does not steal the toolbar tab stop', btn.attrs.tabindex, '-1');
   // `base` is the first button[data-name] in the DOM and is active by
   // default: a clone of it would carry the active-state hash and stay lit.
@@ -465,7 +476,7 @@ section('mounting');
   check(
     'a second mount creates no second button',
     doc.toolbar.children.filter((c) => c.attrs['data-name'] === 'tva-agent').length,
-    1
+    1,
   );
 }
 
@@ -483,11 +494,15 @@ section('mounting');
   check(
     'remounting leaves no second button',
     doc.toolbar.children.filter((c) => c.attrs['data-name'] === 'tva-agent').length,
-    1
+    1,
   );
   check('the old button was taken out of the toolbar', doc.toolbar.contains(firstButton), false);
   // The old observer holds the old button and would put it back.
-  check('the old observer is disconnected, the new one connected', observers.map((o) => o.connected), [false, true]);
+  check(
+    'the old observer is disconnected, the new one connected',
+    observers.map((o) => o.connected),
+    [false, true],
+  );
 }
 
 {
@@ -501,8 +516,11 @@ section('mounting');
   btn.remove();
   const filler = doc.toolbar.children.find((c) => c.tagName !== 'BUTTON');
   check('the button was put back in the toolbar', doc.toolbar.contains(btn), true);
-  check('and in its old place, at the end of the top group',
-    doc.toolbar.children.indexOf(btn) + 1, doc.toolbar.children.indexOf(filler));
+  check(
+    'and in its old place, at the end of the top group',
+    doc.toolbar.children.indexOf(btn) + 1,
+    doc.toolbar.children.indexOf(filler),
+  );
   // One callback for the removal, one for the re-insertion, and that is all.
   check('putting it back does not loop', observers[0].calls, 2);
 }
@@ -516,8 +534,7 @@ section('mounting');
   check('nothing is bound to unload before a mount', listenerCount('pagehide'), 0);
   check('beforeunload is not used at all', listenerCount('beforeunload'), 0);
   await call('widgetbar_mount');
-  check('mount and activate both go through',
-    await failure(() => call('widgetbar_activate')), '');
+  check('mount and activate both go through', await failure(() => call('widgetbar_activate')), '');
   check('the unload listener appeared with the mount', listenerCount('pagehide'), 1);
   fire('pagehide');
   check('on unload the page leaves layout.pages', L.pages.length, 3);
@@ -532,8 +549,11 @@ section('mounting');
   const { call, posted, win } = load({ layout: L1, document: doc });
   await call('widgetbar_mount');
   await call('widgetbar_activate');
-  check('the subscriptions are on the first layout',
-    [L1.activePageIndex.count(), L1.isMinimized.count()], [1, 1]);
+  check(
+    'the subscriptions are on the first layout',
+    [L1.activePageIndex.count(), L1.isMinimized.count()],
+    [1, 1],
+  );
 
   const L2 = makeLayout(3, doc);
   // destroy() takes the whole page container; document.contains(wb.el) turns
@@ -543,10 +563,16 @@ section('mounting');
 
   await call('widgetbar_mount');
   check('the page was rebuilt in the new layout', L2.pages.length, 4);
-  check('the old layout was unsubscribed from',
-    [L1.activePageIndex.count(), L1.isMinimized.count()], [0, 0]);
-  check('and the new one subscribed to',
-    [L2.activePageIndex.count(), L2.isMinimized.count()], [1, 1]);
+  check(
+    'the old layout was unsubscribed from',
+    [L1.activePageIndex.count(), L1.isMinimized.count()],
+    [0, 0],
+  );
+  check(
+    'and the new one subscribed to',
+    [L2.activePageIndex.count(), L2.isMinimized.count()],
+    [1, 1],
+  );
 
   posted.length = 0;
   L2.switchPage(3);
@@ -554,8 +580,11 @@ section('mounting');
   // lands a microtask after the call that caused it.
   await settle();
   const evt = posted.filter((m) => m.source === 'tva-evt').pop();
-  check('the new layout drives our state again',
-    [evt && evt.type, evt && evt.payload], ['widgetbar-active', { active: true }]);
+  check(
+    'the new layout drives our state again',
+    [evt && evt.type, evt && evt.payload],
+    ['widgetbar-active', { active: true }],
+  );
 }
 
 section('the race for the bar to appear');
@@ -571,11 +600,18 @@ section('the race for the bar to appear');
     win.widgetbar = { layout: L };
   }, 350);
   const res = await call('widgetbar_mount');
-  check('race: mounting waits for the bar rather than refusing', res, { ok: true, pageId: 'tva-widgetbar-page' });
+  check('race: mounting waits for the bar rather than refusing', res, {
+    ok: true,
+    pageId: 'tva-widgetbar-page',
+  });
   check('race: the page was created', L.pages.length, 4);
   const btn = doc.toolbar.children.find((c) => c.attrs['data-name'] === 'tva-agent');
   check('race: the button went into the toolbar', Boolean(btn), true);
-  check('race: the page element is in the container', doc.content.children.includes(L.pages[3].el), true);
+  check(
+    'race: the page element is in the container',
+    doc.content.children.includes(L.pages[3].el),
+    true,
+  );
 }
 
 {
@@ -589,15 +625,19 @@ section('the race for the bar to appear');
     win.widgetbar = { layout: L };
   }, 350);
   const [res1, res2] = await Promise.all([call('widgetbar_mount'), call('widgetbar_mount')]);
-  check('concurrent mounts: both resolve to one result', [res1, res2], [
-    { ok: true, pageId: 'tva-widgetbar-page' },
-    { ok: true, pageId: 'tva-widgetbar-page' },
-  ]);
+  check(
+    'concurrent mounts: both resolve to one result',
+    [res1, res2],
+    [
+      { ok: true, pageId: 'tva-widgetbar-page' },
+      { ok: true, pageId: 'tva-widgetbar-page' },
+    ],
+  );
   check('concurrent mounts: only one page was created', L.pages.length, 4);
   check(
     'concurrent mounts: only one button was created',
     doc.toolbar.children.filter((c) => c.attrs['data-name'] === 'tva-agent').length,
-    1
+    1,
   );
 }
 
@@ -639,7 +679,11 @@ section('activation');
   await call('widgetbar_activate');
   // The end state, not the call log: the real setMinimizedState says nothing
   // when the value has not changed.
-  check('we switch to our page and un-minimize', [L.activeIndex, L.isMinimized.value()], [3, false]);
+  check(
+    'we switch to our page and un-minimize',
+    [L.activeIndex, L.isMinimized.value()],
+    [3, false],
+  );
   check('the host tab-click handler was never called', L.calls.includes('onTabClick'), false);
   check('the host activated our page', page.active, true);
   // switchPage writes our name into layout.activeName, which the next
@@ -753,7 +797,10 @@ section('transitions');
   L.removePage(page);
   const err = await failure(() => call('widgetbar_activate'));
   check('activating with no page in pages refuses', /not mounted/i.test(err), true);
-  check('state does not confuse one -1 with the other', await call('widgetbar_state'), { active: false, minimized: false });
+  check('state does not confuse one -1 with the other', await call('widgetbar_state'), {
+    active: false,
+    minimized: false,
+  });
 }
 
 section('state');
@@ -766,7 +813,11 @@ section('state');
   await call('widgetbar_activate');
   await settle();
   const evt = posted.filter((m) => m.source === 'tva-evt').pop();
-  check('activation emits an event', [evt.type, evt.payload], ['widgetbar-active', { active: true }]);
+  check(
+    'activation emits an event',
+    [evt.type, evt.payload],
+    ['widgetbar-active', { active: true }],
+  );
   check('the state reads back', await call('widgetbar_state'), {
     active: true,
     minimized: false,
@@ -784,7 +835,11 @@ section('state');
   L.switchPage(0);
   await settle();
   const evt = posted.filter((m) => m.source === 'tva-evt').pop();
-  check('somebody else’s tab turns ours off', [evt.type, evt.payload], ['widgetbar-active', { active: false }]);
+  check(
+    'somebody else’s tab turns ours off',
+    [evt.type, evt.payload],
+    ['widgetbar-active', { active: false }],
+  );
 }
 
 {
@@ -802,7 +857,11 @@ section('state');
   L.switchPage(0);
   L.switchPage(2);
   await settle();
-  check('a repeat of the same active=false sends no second event', posted.filter((m) => m.source === 'tva-evt').length, 1);
+  check(
+    'a repeat of the same active=false sends no second event',
+    posted.filter((m) => m.source === 'tva-evt').length,
+    1,
+  );
 }
 
 report();

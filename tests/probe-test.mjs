@@ -21,7 +21,9 @@ function makeChart(flaky, { lastClose = 65432.1, hasBars = true, lastThrows = fa
     isEmpty: () => !hasBars,
     last: () => {
       if (lastThrows) throw new Error('last() blew up');
-      return { value: [1700000000, lastClose - 12, lastClose + 20, lastClose - 30, lastClose, 1234] };
+      return {
+        value: [1700000000, lastClose - 12, lastClose + 20, lastClose - 30, lastClose, 1234],
+      };
     },
   };
   const series = { data: () => ({ bars: () => bars }) };
@@ -57,7 +59,12 @@ function makeChart(flaky, { lastClose = 65432.1, hasBars = true, lastThrows = fa
 function boot(flaky, chartOpts) {
   const { spawn } = makeWorlds();
   const chart = makeChart(flaky, chartOpts);
-  const stubs = { localStorage: { getItem: () => null }, performance: { now: () => 0 }, document: {}, console };
+  const stubs = {
+    localStorage: { getItem: () => null },
+    performance: { now: () => 0 },
+    document: {},
+    console,
+  };
 
   const main = spawn({ TradingViewApi: chart.api, user: { id: 42 } });
   const iso = spawn({});
@@ -78,7 +85,11 @@ section('the chart does not answer straight away');
   check('symbol was read', r.symbol, 'BINGX:BTCUSDT.P');
   check('resolution was waited for, not left null', r.resolution, '60');
   check('the report is marked ready', r.ready, true);
-  check('no "Chart not ready" warning', (r.warnings || []).filter((w) => /Chart not ready/.test(w)), []);
+  check(
+    'no "Chart not ready" warning',
+    (r.warnings || []).filter((w) => /Chart not ready/.test(w)),
+    [],
+  );
 }
 
 section('the chart never answered');
@@ -86,8 +97,16 @@ section('the chart never answered');
   const { bridge } = boot(Infinity);
   const r = await bridge.probeWhenReady(2);
   check('the report is not ready', !r.ready, true);
-  check('but the chart was found — the panel must not claim "no API"', [r.tradingViewApi, r.chart], [true, true]);
-  check('the warning is there', (r.warnings || []).some((w) => /Chart not ready/.test(w)), true);
+  check(
+    'but the chart was found — the panel must not claim "no API"',
+    [r.tradingViewApi, r.chart],
+    [true, true],
+  );
+  check(
+    'the warning is there',
+    (r.warnings || []).some((w) => /Chart not ready/.test(w)),
+    true,
+  );
   check('price is absent — the bars were never reached', 'price' in r, false);
 }
 
@@ -135,7 +154,11 @@ section('a symbol change pushes a fresh report');
   await settle();
 
   check('exactly one report was pushed for one switch', pushed.length, 1);
-  check('and it carries the new symbol', [pushed[0]?.symbol, pushed[0]?.resolution], ['NASDAQ:AAPL', 'D']);
+  check(
+    'and it carries the new symbol',
+    [pushed[0]?.symbol, pushed[0]?.resolution],
+    ['NASDAQ:AAPL', 'D'],
+  );
   check('still a complete report, not a fragment', pushed[0]?.ready, true);
 }
 

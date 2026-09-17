@@ -52,7 +52,7 @@ section('the worlds that share code have their own copy of it');
     check(
       `${copy} is byte-identical to ${origin}`,
       fs.readFileSync(EXT + copy, 'utf8') === fs.readFileSync(EXT + origin, 'utf8'),
-      true
+      true,
     );
   }
 }
@@ -76,9 +76,21 @@ section('the two worlds still get what they need');
 
   check('driver.js is in the MAIN world', main.includes('src/injected/driver.js'), true);
   check('bridge.js is in the ISOLATED world', isolated.includes('src/content/bridge.js'), true);
-  check('driver.js loads after its wire', ahead('src/injected/driver.js', 'src/injected/wire.js'), true);
-  check('driver.js loads after its wait', ahead('src/injected/driver.js', 'src/injected/wait.js'), true);
-  check('bridge.js loads after its wire', ahead('src/content/bridge.js', 'src/shared/wire.js'), true);
+  check(
+    'driver.js loads after its wire',
+    ahead('src/injected/driver.js', 'src/injected/wire.js'),
+    true,
+  );
+  check(
+    'driver.js loads after its wait',
+    ahead('src/injected/driver.js', 'src/injected/wait.js'),
+    true,
+  );
+  check(
+    'bridge.js loads after its wire',
+    ahead('src/content/bridge.js', 'src/shared/wire.js'),
+    true,
+  );
 
   // Both ends have to be up before the page's first script, or the handshake
   // is racing scripts it was designed to exclude.
@@ -91,17 +103,21 @@ section('the two worlds still get what they need');
 section('store permissions stay narrow');
 
 {
-  check('the declared Chrome floor matches MAIN-world content scripts', manifest.minimum_chrome_version, '111');
+  check(
+    'the declared Chrome floor matches MAIN-world content scripts',
+    manifest.minimum_chrome_version,
+    '111',
+  );
   check(
     'only the selected built-in provider is granted at install time',
     manifest.host_permissions,
-    ['https://api.anthropic.com/*']
+    ['https://api.anthropic.com/*'],
   );
-  check(
-    'user-selected providers are runtime permissions',
-    manifest.optional_host_permissions,
-    ['http://localhost/*', 'http://127.0.0.1/*', 'https://*/*']
-  );
+  check('user-selected providers are runtime permissions', manifest.optional_host_permissions, [
+    'http://localhost/*',
+    'http://127.0.0.1/*',
+    'https://*/*',
+  ]);
 }
 
 report();

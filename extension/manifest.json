@@ -15,15 +15,9 @@
     "128": "icons/icon128-store.png"
   },
 
-  "host_permissions": [
-    "https://api.anthropic.com/*"
-  ],
+  "host_permissions": ["https://api.anthropic.com/*"],
 
-  "optional_host_permissions": [
-    "http://localhost/*",
-    "http://127.0.0.1/*",
-    "https://*/*"
-  ],
+  "optional_host_permissions": ["http://localhost/*", "http://127.0.0.1/*", "https://*/*"],
 
   "background": {
     "service_worker": "src/background/service-worker.js"

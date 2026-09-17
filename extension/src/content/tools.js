@@ -34,7 +34,10 @@ window.TVAgentTools = (() => {
       input_schema: {
         type: 'object',
         properties: {
-          count: { type: 'integer', description: 'How many of the most recent bars to return (default 100).' },
+          count: {
+            type: 'integer',
+            description: 'How many of the most recent bars to return (default 100).',
+          },
         },
         additionalProperties: false,
       },
@@ -115,7 +118,10 @@ window.TVAgentTools = (() => {
         properties: {
           name: { type: 'string' },
           inputs: { type: 'object', description: 'Indicator parameters, e.g. {"length": 200}.' },
-          overlay: { type: 'boolean', description: 'Force onto the price pane instead of a separate pane.' },
+          overlay: {
+            type: 'boolean',
+            description: 'Force onto the price pane instead of a separate pane.',
+          },
         },
         required: ['name'],
         additionalProperties: false,
@@ -290,9 +296,9 @@ window.TVAgentTools = (() => {
 
   /** The API wants only the wire fields — `level` and `needs` are ours. */
   function forApi(capabilities) {
-    return TOOLS
-      .filter((t) => isAvailable(t, capabilities))
-      .map(({ name, description, input_schema }) => ({ name, description, input_schema }));
+    return TOOLS.filter((t) => isAvailable(t, capabilities)).map(
+      ({ name, description, input_schema }) => ({ name, description, input_schema }),
+    );
   }
 
   function isAvailable(tool, caps) {

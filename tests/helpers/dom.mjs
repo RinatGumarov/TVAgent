@@ -11,7 +11,7 @@ const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" };
 
 const decodeEntities = (s) =>
   s.replace(/&(amp|lt|gt|quot|#39);/g, (whole, name) =>
-    ENTITIES[name] === undefined ? whole : ENTITIES[name]
+    ENTITIES[name] === undefined ? whole : ENTITIES[name],
   );
 
 export function descendants(node) {
@@ -62,8 +62,16 @@ function makeClassList(el) {
   const write = (set) => (el.className = [...set].join(' '));
   return {
     contains: (c) => parts().includes(c),
-    add: (...cs) => { const s = new Set(parts()); cs.forEach((c) => s.add(c)); write(s); },
-    remove: (...cs) => { const s = new Set(parts()); cs.forEach((c) => s.delete(c)); write(s); },
+    add: (...cs) => {
+      const s = new Set(parts());
+      cs.forEach((c) => s.add(c));
+      write(s);
+    },
+    remove: (...cs) => {
+      const s = new Set(parts());
+      cs.forEach((c) => s.delete(c));
+      write(s);
+    },
     toggle: (c, force) => {
       const has = parts().includes(c);
       const want = force === undefined ? !has : !!force;
@@ -103,7 +111,10 @@ export function parseFragment(html) {
     if (tok.startsWith('</')) {
       const tagName = tok.slice(2, -1).trim().toUpperCase();
       for (let i = stack.length - 1; i >= 1; i--) {
-        if (stack[i].tagName === tagName) { stack.length = i; break; }
+        if (stack[i].tagName === tagName) {
+          stack.length = i;
+          break;
+        }
       }
       continue;
     }
@@ -213,7 +224,8 @@ export function makeElement(tagName) {
       return null;
     },
     insertAdjacentHTML(pos, html) {
-      if (pos !== 'beforeend') throw new Error('fake insertAdjacentHTML: unsupported position ' + pos);
+      if (pos !== 'beforeend')
+        throw new Error('fake insertAdjacentHTML: unsupported position ' + pos);
       parseFragment(html).forEach((n) => {
         n.parent = el;
         el.children.push(n);
@@ -250,19 +262,31 @@ export function makeElement(tagName) {
       el.children = parseFragment(html);
       el.children.forEach((n) => (n.parent = el));
     },
-    get() { return '[fake: write-only]'; },
+    get() {
+      return '[fake: write-only]';
+    },
   });
   Object.defineProperty(el, 'textContent', {
-    get() { return textOf(el); },
-    set(v) { el.children = [{ nodeType: 'text', text: String(v), parent: el }]; },
+    get() {
+      return textOf(el);
+    },
+    set(v) {
+      el.children = [{ nodeType: 'text', text: String(v), parent: el }];
+    },
   });
   Object.defineProperty(el, 'firstChild', {
-    get() { return el.children[0] || null; },
+    get() {
+      return el.children[0] || null;
+    },
   });
   // `title` reflects into the attribute, as in a real DOM.
   Object.defineProperty(el, 'title', {
-    get() { return el.attrs.title === undefined ? '' : el.attrs.title; },
-    set(v) { el.attrs.title = String(v); },
+    get() {
+      return el.attrs.title === undefined ? '' : el.attrs.title;
+    },
+    set(v) {
+      el.attrs.title = String(v);
+    },
   });
   Object.defineProperty(el, 'classList', { get: () => makeClassList(el) });
 
@@ -339,7 +363,9 @@ export function fireKeydown(el, { key, shiftKey } = {}) {
     key,
     shiftKey: !!shiftKey,
     defaultPrevented: false,
-    preventDefault() { this.defaultPrevented = true; },
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
   };
   (el.listeners.keydown || []).forEach((fn) => fn(evt));
   return evt;

@@ -39,7 +39,9 @@
     root = mountRoot;
     // Append rather than assign: the overlay resizer is already a child, and
     // assigning innerHTML would drop it.
-    root.insertAdjacentHTML('beforeend', `
+    root.insertAdjacentHTML(
+      'beforeend',
+      `
       <header class="tva-header">
         <span class="tva-brand">TVAgent</span>
         <span class="tva-spacer"></span>
@@ -83,7 +85,8 @@
         </div>
         <p class="tva-composer-hint">Enter to send · Shift+Enter for a new line</p>
       </footer>
-    `);
+    `,
+    );
 
     listEl = root.querySelector('#tva-list');
     settingsEl = root.querySelector('#tva-settings');
@@ -207,7 +210,9 @@
   function contextLine() {
     const caps = capabilities || {};
     return caps.symbol
-      ? [caps.symbol, formatResolution(caps.resolution), formatPrice(caps.price)].filter(Boolean).join(' · ')
+      ? [caps.symbol, formatResolution(caps.resolution), formatPrice(caps.price)]
+          .filter(Boolean)
+          .join(' · ')
       : 'no chart';
   }
 
@@ -220,7 +225,8 @@
 
     ctxChipEl.classList.toggle('tva-hidden', !caps.symbol);
     root.querySelector('#tva-ctx-symbol').textContent = caps.symbol || '—';
-    root.querySelector('#tva-ctx-resolution').textContent = formatResolution(caps.resolution) || '—';
+    root.querySelector('#tva-ctx-resolution').textContent =
+      formatResolution(caps.resolution) || '—';
     root.querySelector('#tva-ctx-price').textContent = formatPrice(caps.price) || '—';
     setContextChip();
   }
@@ -384,9 +390,7 @@
       settings = window.TVAgentSettings.create(settingsEl, {
         onChange: ({ provider, model }) => {
           modelChipEl.textContent =
-            provider === 'anthropic'
-              ? window.TVAgentModels.chip(model)
-              : model || 'Pick a model';
+            provider === 'anthropic' ? window.TVAgentModels.chip(model) : model || 'Pick a model';
         },
       });
 
@@ -417,12 +421,15 @@
       showError(
         'no chart',
         'Could not reach the TradingView API on this page. Open a chart at ' +
-          'tradingview.com/chart/ and reload.'
+          'tradingview.com/chart/ and reload.',
       );
       return;
     }
 
-    setStatus(capabilities.loggedIn ? 'ok' : 'warn', capabilities.loggedIn ? 'connected' : 'logged out');
+    setStatus(
+      capabilities.loggedIn ? 'ok' : 'warn',
+      capabilities.loggedIn ? 'connected' : 'logged out',
+    );
     (capabilities.warnings || []).forEach((w) => {
       setEmpty(false);
       chat.notice('⚠ ' + w);
@@ -448,7 +455,7 @@
       if (!busy) {
         setStatus(
           capabilities.loggedIn ? 'ok' : 'warn',
-          capabilities.loggedIn ? 'connected' : 'logged out'
+          capabilities.loggedIn ? 'connected' : 'logged out',
         );
       }
     });

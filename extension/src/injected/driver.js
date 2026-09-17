@@ -49,7 +49,8 @@
   /** Loaded OHLCV window. TradingView keeps ~300 bars in memory. */
   function bars() {
     const b = chart().getSeries().data().bars();
-    if (!b || b.isEmpty()) throw new Error('No bar data loaded yet — wait for the chart to finish loading.');
+    if (!b || b.isEmpty())
+      throw new Error('No bar data loaded yet — wait for the chart to finish loading.');
     return b;
   }
 
@@ -62,7 +63,9 @@
     const first = b.valueAt(b.firstIndex())[0];
     const last = b.valueAt(b.lastIndex())[0];
     if (Number.isNaN(time)) {
-      throw new Error('time must be a unix timestamp in seconds — got something that is not a number.');
+      throw new Error(
+        'time must be a unix timestamp in seconds — got something that is not a number.',
+      );
     }
     if (time <= first) return first;
     if (time >= last) return last;
@@ -72,7 +75,10 @@
       const v = b.valueAt(i);
       if (!v) continue;
       const d = Math.abs(v[0] - time);
-      if (d < bestDist) { bestDist = d; best = v[0]; }
+      if (d < bestDist) {
+        bestDist = d;
+        best = v[0];
+      }
     }
     return best;
   }
@@ -104,7 +110,7 @@
     if (partial) return partial.name;
 
     throw new Error(
-      `Unknown indicator "${query}". Call search_indicators first to get an exact name.`
+      `Unknown indicator "${query}". Call search_indicators first to get an exact name.`,
     );
   }
 
@@ -114,7 +120,9 @@
       const s = chart().getStudyById(entity.id);
       out.inputs = s.getInputValues ? s.getInputValues() : undefined;
       if (s.hasError && s.hasError()) out.error = true;
-    } catch (_) { /* study may still be building */ }
+    } catch (_) {
+      /* study may still be building */
+    }
     return out;
   }
 
@@ -195,7 +203,7 @@
     });
     if (!present) {
       throw new Error(
-        `Timed out waiting for the TradingView widget bar to appear (waited ${WIDGETBAR_WAIT_ATTEMPTS * WIDGETBAR_POLL_INTERVAL_MS}ms).`
+        `Timed out waiting for the TradingView widget bar to appear (waited ${WIDGETBAR_WAIT_ATTEMPTS * WIDGETBAR_POLL_INTERVAL_MS}ms).`,
       );
     }
   }
@@ -260,7 +268,11 @@
         if (next === current) return;
         current = next;
         subs.slice().forEach((fn) => {
-          try { fn(current); } catch (e) { log('watched value listener failed', e); }
+          try {
+            fn(current);
+          } catch (e) {
+            log('watched value listener failed', e);
+          }
         });
       },
       subscribe(fn, options) {
@@ -268,7 +280,10 @@
         if (options && options.callWithLast) fn(current);
       },
       unsubscribe(fn) {
-        if (!fn) { subs.length = 0; return; }
+        if (!fn) {
+          subs.length = 0;
+          return;
+        }
         const i = subs.indexOf(fn);
         if (i !== -1) subs.splice(i, 1);
       },
@@ -427,7 +442,9 @@
   function wbMount(opts) {
     if (wb.el && document.contains(wb.el)) return Promise.resolve({ ok: true, pageId: PAGE_ID });
     if (wb.mounting) return wb.mounting;
-    wb.mounting = wbMountBody(opts).finally(() => { wb.mounting = null; });
+    wb.mounting = wbMountBody(opts).finally(() => {
+      wb.mounting = null;
+    });
     return wb.mounting;
   }
 
@@ -528,11 +545,14 @@
       const current = () => mine === announceGeneration;
       // The chart reports the new symbol before it can answer for it, so wait
       // for a report worth acting on rather than pushing a half-built one.
-      const ready = await poll(async () => {
-        if (!current()) return null;
-        const report = await HANDLERS.probe();
-        return report.ready ? report : null;
-      }, { attempts: CHART_READY_ATTEMPTS, intervalMs: CHART_READY_INTERVAL_MS });
+      const ready = await poll(
+        async () => {
+          if (!current()) return null;
+          const report = await HANDLERS.probe();
+          return report.ready ? report : null;
+        },
+        { attempts: CHART_READY_ATTEMPTS, intervalMs: CHART_READY_INTERVAL_MS },
+      );
       if (!current()) return;
       emit('chart-changed', ready || (await HANDLERS.probe()));
     }, CHART_SETTLE_MS);
@@ -587,17 +607,21 @@
       };
 
       if (!report.tradingViewApi) {
-        report.warnings.push('TradingViewApi not found. Open a chart page (tradingview.com/chart/).');
+        report.warnings.push(
+          'TradingViewApi not found. Open a chart page (tradingview.com/chart/).',
+        );
         return report;
       }
 
       try {
         report.loggedIn = !!(window.user && window.user.id);
-      } catch (_) { /* ignore */ }
+      } catch (_) {
+        /* ignore */
+      }
       if (!report.loggedIn) {
         report.warnings.push(
           'You appear to be logged out. Most drawing tools are unavailable to anonymous users ' +
-          'and will fail with "Cannot create ... shape". Log in to TradingView.'
+            'and will fail with "Cannot create ... shape". Log in to TradingView.',
         );
       }
 
@@ -609,18 +633,25 @@
         // null".
         report.symbol = c.symbol();
         report.resolution = c.resolution();
-        report.studies = typeof c.createStudy === 'function' && typeof c.getAllStudies === 'function';
+        report.studies =
+          typeof c.createStudy === 'function' && typeof c.getAllStudies === 'function';
         report.drawings = typeof c.createShape === 'function';
         report.strategy = typeof c.getStudyById === 'function';
         let loadedBars = null;
         try {
           loadedBars = bars();
           report.series = !loadedBars.isEmpty();
-        } catch (_) { report.series = false; }
+        } catch (_) {
+          report.series = false;
+        }
         // The last close, for the context row; absent rather than null until
         // the bars have loaded.
         if (report.series) {
-          try { report.price = loadedBars.last().value[4]; } catch (_) { /* leave price absent */ }
+          try {
+            report.price = loadedBars.last().value[4];
+          } catch (_) {
+            /* leave price absent */
+          }
         }
       } catch (e) {
         report.warnings.push('Chart not ready: ' + e.message);
@@ -659,13 +690,24 @@
       try {
         const b = bars();
         const last = b.last().value;
-        ctx.lastBar = { time: last[0], open: last[1], high: last[2], low: last[3], close: last[4], volume: last[5] };
+        ctx.lastBar = {
+          time: last[0],
+          open: last[1],
+          high: last[2],
+          low: last[3],
+          close: last[4],
+          volume: last[5],
+        };
         ctx.loadedBars = b.size();
-      } catch (_) { ctx.loadedBars = 0; }
+      } catch (_) {
+        ctx.loadedBars = 0;
+      }
       try {
         const ext = c.symbolExt();
         if (ext) ctx.description = ext.description || ext.full_name;
-      } catch (_) { /* ignore */ }
+      } catch (_) {
+        /* ignore */
+      }
       return ctx;
     },
 
@@ -680,7 +722,8 @@
       }
 
       // The range is computed here so the model reads it rather than sums it.
-      let high = out[0], low = out[0];
+      let high = out[0],
+        low = out[0];
       for (const bar of out) {
         if (bar.high > high.high) high = bar;
         if (bar.low < low.low) low = bar;
@@ -725,9 +768,14 @@
 
     async search_indicators({ query, limit = 20 }) {
       const all = studyCatalog();
-      const q = String(query || '').trim().toLowerCase();
+      const q = String(query || '')
+        .trim()
+        .toLowerCase();
       const matches = q
-        ? all.filter((s) => (s.name || '').toLowerCase().includes(q) || (s.short || '').toLowerCase().includes(q))
+        ? all.filter(
+            (s) =>
+              (s.name || '').toLowerCase().includes(q) || (s.short || '').toLowerCase().includes(q),
+          )
         : all;
       return { total: matches.length, results: matches.slice(0, Number(limit) || 20) };
     },
@@ -741,22 +789,33 @@
       const resolved = findStudyName(name);
       const id = await c.createStudy(resolved, !!overlay, false, inputs || {});
       if (!id) throw new Error(`createStudy returned no id for "${resolved}".`);
-      try { await c.waitForStudyCreated(id); } catch (_) { /* best effort */ }
-      return { id, name: resolved, indicators: c.getAllStudies().map((s) => ({ id: s.id, name: s.name })) };
+      try {
+        await c.waitForStudyCreated(id);
+      } catch (_) {
+        /* best effort */
+      }
+      return {
+        id,
+        name: resolved,
+        indicators: c.getAllStudies().map((s) => ({ id: s.id, name: s.name })),
+      };
     },
 
     async update_indicator({ id, inputs }) {
       const s = chart().getStudyById(id);
       if (!s) throw new Error(`No indicator with id ${id}.`);
-      s.setInputValues(
-        Object.entries(inputs || {}).map(([k, v]) => ({ id: k, value: v }))
-      );
+      s.setInputValues(Object.entries(inputs || {}).map(([k, v]) => ({ id: k, value: v })));
       return { id, inputs: s.getInputValues() };
     },
 
     async remove_indicator({ id }) {
       chart().removeEntity(id);
-      return { removed: id, indicators: chart().getAllStudies().map((s) => ({ id: s.id, name: s.name })) };
+      return {
+        removed: id,
+        indicators: chart()
+          .getAllStudies()
+          .map((s) => ({ id: s.id, name: s.name })),
+      };
     },
 
     // ---- drawings ---------------------------------------------------------
@@ -770,7 +829,7 @@
       const t = bars().last().value[0];
       const id = await c.createShape(
         { time: t, price: Number(price) },
-        { shape: 'horizontal_line', text: text || undefined }
+        { shape: 'horizontal_line', text: text || undefined },
       );
       return { id, shape: 'horizontal_line', price: Number(price) };
     },
@@ -788,7 +847,7 @@
           { time: snapToBar(Number(from.time)), price: Number(from.price) },
           { time: snapToBar(Number(to.time)), price: Number(to.price) },
         ],
-        { shape: 'trend_line', text: text || undefined }
+        { shape: 'trend_line', text: text || undefined },
       );
       return { id, shape: 'trend_line' };
     },
@@ -797,7 +856,7 @@
       if (!text) throw new Error('text is required');
       const id = await chart().createShape(
         { time: snapToBar(Number(time)), price: Number(price) },
-        { shape: 'text', text: String(text) }
+        { shape: 'text', text: String(text) },
       );
       return { id, shape: 'text' };
     },
@@ -833,7 +892,11 @@
         intervalMs: 500,
       });
       if (!added) {
-        return { ok: false, error: 'Script did not attach — it most likely failed to compile. Check the Pine editor console.' };
+        return {
+          ok: false,
+          error:
+            'Script did not attach — it most likely failed to compile. Check the Pine editor console.',
+        };
       }
 
       const result = { ok: true, id: added.id, name: added.name };
@@ -841,7 +904,9 @@
         const s = c.getStudyById(added.id);
         result.hasError = !!(s.hasError && s.hasError());
         if (s.status) result.status = s.status();
-      } catch (_) { /* ignore */ }
+      } catch (_) {
+        /* ignore */
+      }
       return result;
     },
 
@@ -855,8 +920,13 @@
         for (const e of c.getAllStudies()) {
           try {
             const st = c.getStudyById(e.id).study();
-            if (st && typeof st.reportData === 'function' && st.reportData()) { studyId = e.id; break; }
-          } catch (_) { /* not a strategy */ }
+            if (st && typeof st.reportData === 'function' && st.reportData()) {
+              studyId = e.id;
+              break;
+            }
+          } catch (_) {
+            /* not a strategy */
+          }
         }
       }
       if (!studyId) throw new Error('No strategy on the chart. Add a Pine strategy first.');
@@ -867,7 +937,7 @@
           const report = study.reportData && study.reportData();
           return report && report.performance ? report : null;
         },
-        { attempts: 15, intervalMs: 700 }
+        { attempts: 15, intervalMs: 700 },
       );
       if (!data) throw new Error('Strategy report is not populated yet.');
 
@@ -967,7 +1037,7 @@
     const reply = async (payload) =>
       window.postMessage(
         { source: wire.RES, id: msg.id, stamp: await wire.stamp(key, msg.id, 'res'), ...payload },
-        ORIGIN
+        ORIGIN,
       );
 
     const handler = handlerFor(msg.method);

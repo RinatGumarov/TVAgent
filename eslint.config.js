@@ -37,7 +37,7 @@ export default ts.config(
           'TVAgentChat',
           'TVAgentSettings',
           'TVAgentMount',
-        ].map((name) => [name, 'readonly'])
+        ].map((name) => [name, 'readonly']),
       ),
     },
   },
@@ -53,5 +53,5 @@ export default ts.config(
         { argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
     },
-  }
+  },
 );

@@ -42,7 +42,9 @@ window.TVAgentMount = (() => {
       if (!el) {
         // The driver reports success only once its page element is in the
         // document; say so if that ever fails.
-        console.info('[TVAgent] widget bar mount reported success but its page element is not in the document, falling back to the overlay.');
+        console.info(
+          '[TVAgent] widget bar mount reported success but its page element is not in the document, falling back to the overlay.',
+        );
       }
       return el;
     } catch (err) {

@@ -89,9 +89,9 @@ export function makeWorlds() {
   const worlds = [];
   const deliver = (data) => {
     for (const w of worlds) {
-      w.messageListeners.slice().forEach((fn) =>
-        setTimeout(() => fn({ data, origin: w.location.origin, source: w }), 0)
-      );
+      w.messageListeners
+        .slice()
+        .forEach((fn) => setTimeout(() => fn({ data, origin: w.location.origin, source: w }), 0));
     }
   };
   const spawn = (extra) => {

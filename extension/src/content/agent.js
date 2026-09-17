@@ -57,7 +57,14 @@ How to answer:
       // First, and synchronously: whatever the abandoned loop is parked on
       // resumes after this returns, and this is what tells it to stop.
       this.#run++;
-      if (this.port) { try { this.port.disconnect(); } catch (_) { /* already disconnected */ } this.port = null; }
+      if (this.port) {
+        try {
+          this.port.disconnect();
+        } catch (_) {
+          /* already disconnected */
+        }
+        this.port = null;
+      }
       // Disconnecting our own end never fires onDisconnect, so settle the
       // in-flight turn by hand or #loop() would await it forever.
       this.abortTurn?.(new Error('cancelled'));
@@ -84,12 +91,15 @@ How to answer:
       const done = new Map((this.partialResults || []).map((r) => [r.tool_use_id, r]));
       this.messages.push({
         role: 'user',
-        content: calls.map((call) => done.get(call.id) || {
-          type: 'tool_result',
-          tool_use_id: call.id,
-          content: 'The user stopped the run before this tool executed.',
-          is_error: true,
-        }),
+        content: calls.map(
+          (call) =>
+            done.get(call.id) || {
+              type: 'tool_result',
+              tool_use_id: call.id,
+              content: 'The user stopped the run before this tool executed.',
+              is_error: true,
+            },
+        ),
       });
       this.partialResults = null;
     }
@@ -151,7 +161,9 @@ How to answer:
         }
 
         this.handlers.onError?.(
-          new Error(`Stopped after ${MAX_ITERATIONS} steps without finishing. Try a narrower request.`)
+          new Error(
+            `Stopped after ${MAX_ITERATIONS} steps without finishing. Try a narrower request.`,
+          ),
         );
       } catch (err) {
         if (!this.#stale(run)) this.handlers.onError?.(err);
@@ -173,7 +185,11 @@ How to answer:
         this.abortTurn = reject;
 
         const settle = (fn) => {
-          try { port.disconnect(); } catch (_) { /* already disconnected */ }
+          try {
+            port.disconnect();
+          } catch (_) {
+            /* already disconnected */
+          }
           if (this.port === port) {
             this.port = null;
             this.abortTurn = null;
@@ -232,10 +248,16 @@ How to answer:
       // A name that is not in the tool list is not a tool, whatever its level
       // would have been.
       if (!tool) {
-        return this.#refuse(call, `There is no tool called "${call.name}". Use one of the tools you were given.`);
+        return this.#refuse(
+          call,
+          `There is no tool called "${call.name}". Use one of the tools you were given.`,
+        );
       }
       if (!tools.isAvailable(tool, this.capabilities)) {
-        return this.#refuse(call, `The tool "${call.name}" is not available on this chart right now.`);
+        return this.#refuse(
+          call,
+          `The tool "${call.name}" is not available on this chart right now.`,
+        );
       }
       // Level 3 is financial and deliberately unimplemented. No confirmation
       // dialog, and no auto-approve switch, can turn one on.
@@ -251,7 +273,10 @@ How to answer:
           return this.#refuse(call, 'The user stopped the run before this tool executed.');
         }
         if (!approved) {
-          return this.#refuse(call, 'The user declined this action. Do not retry it; ask what they want instead.');
+          return this.#refuse(
+            call,
+            'The user declined this action. Do not retry it; ask what they want instead.',
+          );
         }
       }
 
@@ -262,7 +287,12 @@ How to answer:
       } catch (err) {
         const message = err?.message || String(err);
         this.handlers.onToolResult?.({ id: call.id, name: call.name, ok: false, result: message });
-        return { type: 'tool_result', tool_use_id: call.id, content: `Error: ${message}`, is_error: true };
+        return {
+          type: 'tool_result',
+          tool_use_id: call.id,
+          content: `Error: ${message}`,
+          is_error: true,
+        };
       }
     }
   }

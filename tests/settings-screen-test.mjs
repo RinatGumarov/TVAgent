@@ -77,8 +77,7 @@ const btnByValue = (seg, value) =>
 const secretInput = (hostEl, id) =>
   hostEl.querySelector(id)._shadowRootForTests.querySelector('input');
 
-const fireChange = (el) =>
-  (el.listeners.change || []).forEach((fn) => fn({ target: el }));
+const fireChange = (el) => (el.listeners.change || []).forEach((fn) => fn({ target: el }));
 
 // ========================================================== data disclosure
 
@@ -95,10 +94,22 @@ section('data disclosure and consent');
   const copy = disclosure ? textOf(disclosure) : '';
   check('the disclosure is visible in the product UI', !!disclosure, true);
   check('it names prompts and conversations', /prompt|conversation/i.test(copy), true);
-  check('it names chart context and recent OHLCV bars', /chart context/i.test(copy) && /OHLCV/i.test(copy), true);
+  check(
+    'it names chart context and recent OHLCV bars',
+    /chart context/i.test(copy) && /OHLCV/i.test(copy),
+    true,
+  );
   check('it names Pine source', /Pine source/i.test(copy), true);
-  check('it says the selected model provider receives the data', /model provider/i.test(copy), true);
-  check('it says the selected provider receives the API key for authentication', /API key[\s\S]*selected model provider/i.test(copy), true);
+  check(
+    'it says the selected model provider receives the data',
+    /model provider/i.test(copy),
+    true,
+  );
+  check(
+    'it says the selected provider receives the API key for authentication',
+    /API key[\s\S]*selected model provider/i.test(copy),
+    true,
+  );
   check('configuration alone is not ready without consent', ready, false);
 
   const accept = hostEl.querySelector('#tva-disclosure-accept');
@@ -107,7 +118,11 @@ section('data disclosure and consent');
     accept.checked = true;
     fireChange(accept);
   }
-  check('affirmative consent is stored only after the checkbox changes', chr.store.dataDisclosureAccepted, true);
+  check(
+    'affirmative consent is stored only after the checkbox changes',
+    chr.store.dataDisclosureAccepted,
+    true,
+  );
   check('the settings become ready after consent', api.isReady?.(), true);
 }
 
@@ -116,7 +131,11 @@ section('data disclosure and consent');
 section('the API key fields are out of the page’s reach');
 
 {
-  const chr = makeChrome({ provider: 'anthropic', apiKey: 'sk-ant-secret', model: 'claude-opus-5' });
+  const chr = makeChrome({
+    provider: 'anthropic',
+    apiKey: 'sk-ant-secret',
+    model: 'claude-opus-5',
+  });
   const { Settings, doc } = load(chr);
   const hostEl = doc.createElement('div');
   await Settings.create(hostEl, { onChange: () => {} }).ready;
@@ -127,16 +146,20 @@ section('the API key fields are out of the page’s reach');
   check(
     'no input is reachable by walking the panel’s DOM',
     hostEl.querySelectorAll('input').filter((i) => i.attrs.type === 'password').length,
-    0
+    0,
   );
   check(
     'and the key is nowhere in the page tree',
     JSON.stringify(hostEl.querySelectorAll('input').map((i) => i.value)).includes('sk-ant-secret'),
-    false
+    false,
   );
 
   // Inside, where only the extension can look, the field is loaded normally.
-  check('the key did reach the field itself', secretInput(hostEl, '#tva-key').value, 'sk-ant-secret');
+  check(
+    'the key did reach the field itself',
+    secretInput(hostEl, '#tva-key').value,
+    'sk-ant-secret',
+  );
   check('and it is a password field', secretInput(hostEl, '#tva-key').attrs.type, 'password');
 }
 
@@ -202,7 +225,12 @@ section('migrating off the shared slot');
 section('the segmented controls');
 
 {
-  const chr = makeChrome({ provider: 'anthropic', apiKey: 'sk-ant-x', model: 'claude-sonnet-5', effort: 'high' });
+  const chr = makeChrome({
+    provider: 'anthropic',
+    apiKey: 'sk-ant-x',
+    model: 'claude-sonnet-5',
+    effort: 'high',
+  });
   const { Settings, doc } = load(chr);
   const hostEl = doc.createElement('div');
   const changes = [];
@@ -229,8 +257,14 @@ section('the segmented controls');
   const hostEl = doc.createElement('div');
   await Settings.create(hostEl, { onChange: () => {} }).ready;
 
-  const offered = segByName(hostEl, 'model').querySelectorAll('button').map((b) => b.dataset.value);
-  check('every catalog model is offered', offered, Models.ANTHROPIC.map((m) => m.id));
+  const offered = segByName(hostEl, 'model')
+    .querySelectorAll('button')
+    .map((b) => b.dataset.value);
+  check(
+    'every catalog model is offered',
+    offered,
+    Models.ANTHROPIC.map((m) => m.id),
+  );
 }
 
 // ==================================================== switching provider
@@ -252,22 +286,38 @@ section('switching provider hides the other one’s groups');
   const api = Settings.create(hostEl, { onChange: () => {} });
   await api.ready;
 
-  check('before: the Anthropic groups are visible', groupsFor(hostEl, 'anthropic').every((g) => !g.classList.contains('tva-hidden')), true);
-  check('before: the OpenAI groups are hidden', groupsFor(hostEl, 'openai').every((g) => g.classList.contains('tva-hidden')), true);
+  check(
+    'before: the Anthropic groups are visible',
+    groupsFor(hostEl, 'anthropic').every((g) => !g.classList.contains('tva-hidden')),
+    true,
+  );
+  check(
+    'before: the OpenAI groups are hidden',
+    groupsFor(hostEl, 'openai').every((g) => g.classList.contains('tva-hidden')),
+    true,
+  );
 
   chr.setCalls.length = 0;
   click(btnByValue(segByName(hostEl, 'provider'), 'openai'));
   await Promise.resolve(); // let the click handler's .then(loadModels) run
 
-  check('after: the OpenAI groups are visible', groupsFor(hostEl, 'openai').every((g) => !g.classList.contains('tva-hidden')), true);
-  check('after: the Anthropic groups are hidden', groupsFor(hostEl, 'anthropic').every((g) => g.classList.contains('tva-hidden')), true);
+  check(
+    'after: the OpenAI groups are visible',
+    groupsFor(hostEl, 'openai').every((g) => !g.classList.contains('tva-hidden')),
+    true,
+  );
+  check(
+    'after: the Anthropic groups are hidden',
+    groupsFor(hostEl, 'anthropic').every((g) => g.classList.contains('tva-hidden')),
+    true,
+  );
 
   // The only write a provider click may make is the provider itself.
   check('switching writes nothing but the provider', chr.setCalls, [{ provider: 'openai' }]);
   check(
     'and the stored openai fields are untouched',
     [chr.store.openaiApiKey, chr.store.openaiModel],
-    ['existing-openai-key', 'existing-openai-model']
+    ['existing-openai-key', 'existing-openai-model'],
   );
 }
 
@@ -283,33 +333,43 @@ section('ready');
 }
 
 {
-  const chr = makeChrome({ provider: 'anthropic', apiKey: 'sk-ant-x', dataDisclosureAccepted: true });
+  const chr = makeChrome({
+    provider: 'anthropic',
+    apiKey: 'sk-ant-x',
+    dataDisclosureAccepted: true,
+  });
   const { Settings, doc } = load(chr);
   const ready = await Settings.create(doc.createElement('div'), { onChange: () => {} }).ready;
   check('anthropic with a key: ready = true', ready, true);
 }
 
 {
-  const chr = makeChrome({
-    provider: 'openai',
-    baseUrl: 'http://localhost:11434/v1',
-    openaiApiKey: '',
-    openaiModel: '',
-    dataDisclosureAccepted: true,
-  }, { granted: ['http://localhost/*'] });
+  const chr = makeChrome(
+    {
+      provider: 'openai',
+      baseUrl: 'http://localhost:11434/v1',
+      openaiApiKey: '',
+      openaiModel: '',
+      dataDisclosureAccepted: true,
+    },
+    { granted: ['http://localhost/*'] },
+  );
   const { Settings, doc } = load(chr);
   const ready = await Settings.create(doc.createElement('div'), { onChange: () => {} }).ready;
   check('openai with no model: ready = false', ready, false);
 }
 
 {
-  const chr = makeChrome({
-    provider: 'openai',
-    baseUrl: 'http://localhost:11434/v1',
-    openaiApiKey: '',
-    openaiModel: 'gemma4:26b-a4b-it-qat',
-    dataDisclosureAccepted: true,
-  }, { granted: ['http://localhost/*'] });
+  const chr = makeChrome(
+    {
+      provider: 'openai',
+      baseUrl: 'http://localhost:11434/v1',
+      openaiApiKey: '',
+      openaiModel: 'gemma4:26b-a4b-it-qat',
+      dataDisclosureAccepted: true,
+    },
+    { granted: ['http://localhost/*'] },
+  );
   const { Settings, doc } = load(chr);
   const ready = await Settings.create(doc.createElement('div'), { onChange: () => {} }).ready;
   check('openai with a model: ready = true', ready, true);
@@ -331,12 +391,18 @@ section('ready');
   fireChange(hostEl.querySelector('#tva-base'));
   await Promise.resolve();
   await Promise.resolve();
-  check('editing the URL does not request permission outside an explicit button gesture', chr.requestCalls, []);
+  check(
+    'editing the URL does not request permission outside an explicit button gesture',
+    chr.requestCalls,
+    [],
+  );
 
   click(hostEl.querySelector('#tva-provider-access'));
   await Promise.resolve();
   await Promise.resolve();
-  check('the access button requests only the configured provider host', chr.requestCalls, [['https://api.groq.com/*']]);
+  check('the access button requests only the configured provider host', chr.requestCalls, [
+    ['https://api.groq.com/*'],
+  ]);
   check('granting the provider host makes the settings ready', api.isReady?.(), true);
 
   const base = hostEl.querySelector('#tva-base');
@@ -349,7 +415,9 @@ section('ready');
   base.value = 'https://api.example.com/v1';
   fireChange(base);
   await new Promise((resolve) => setTimeout(resolve, 0));
-  check('changing provider revokes the obsolete optional host', chr.removeCalls, [['https://api.groq.com/*']]);
+  check('changing provider revokes the obsolete optional host', chr.removeCalls, [
+    ['https://api.groq.com/*'],
+  ]);
   check('the new provider needs its own explicit grant', api.isReady?.(), false);
 }
 
@@ -358,13 +426,16 @@ section('ready');
 section('loadModels: once per URL, again when it changes');
 
 {
-  const chr = makeChrome({
-    provider: 'openai',
-    baseUrl: 'https://host-a.example/v1',
-    openaiApiKey: '',
-    openaiModel: 'm',
-    dataDisclosureAccepted: true,
-  }, { granted: ['https://host-a.example/*', 'https://host-b.example/*'] });
+  const chr = makeChrome(
+    {
+      provider: 'openai',
+      baseUrl: 'https://host-a.example/v1',
+      openaiApiKey: '',
+      openaiModel: 'm',
+      dataDisclosureAccepted: true,
+    },
+    { granted: ['https://host-a.example/*', 'https://host-b.example/*'] },
+  );
   let calls = 0;
   const relay = chr.runtime.sendMessage;
   chr.runtime.sendMessage = async (msg) => {
@@ -391,13 +462,16 @@ section('loadModels: once per URL, again when it changes');
 section('loadModels: a failure releases the latch');
 
 {
-  const chr = makeChrome({
-    provider: 'openai',
-    baseUrl: 'https://host-err.example/v1',
-    openaiApiKey: '',
-    openaiModel: 'm',
-    dataDisclosureAccepted: true,
-  }, { granted: ['https://host-err.example/*'] });
+  const chr = makeChrome(
+    {
+      provider: 'openai',
+      baseUrl: 'https://host-err.example/v1',
+      openaiApiKey: '',
+      openaiModel: 'm',
+      dataDisclosureAccepted: true,
+    },
+    { granted: ['https://host-err.example/*'] },
+  );
   let calls = 0;
   const relay = chr.runtime.sendMessage;
   chr.runtime.sendMessage = async (msg) => {
@@ -412,7 +486,11 @@ section('loadModels: a failure releases the latch');
 
   await api.refresh();
   check('the request was made', calls, 1);
-  check('the hint says what went wrong', hostEl.querySelector('#tva-model-hint').textContent.includes('boom'), true);
+  check(
+    'the hint says what went wrong',
+    hostEl.querySelector('#tva-model-hint').textContent.includes('boom'),
+    true,
+  );
 
   await api.refresh();
   check('and a later refresh asks again — the latch was released', calls, 2);

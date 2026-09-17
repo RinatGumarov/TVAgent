@@ -135,7 +135,7 @@ window.TVAgentBridge = (() => {
           return null;
         }
       },
-      { attempts, intervalMs: 1000 }
+      { attempts, intervalMs: 1000 },
     );
     return ready || last || { tradingViewApi: false, warnings: ['Driver did not respond.'] };
   }

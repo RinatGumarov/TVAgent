@@ -30,21 +30,29 @@ const load = (data) =>
     'TVAgentModels',
     'TVAgentCredentials',
     'TVAgentProviderURL',
-    `${src}\nreturn { settings, configError, streamAnthropic };`
+    `${src}\nreturn { settings, configError, streamAnthropic };`,
   )(
     chromeStub(data),
     () => {},
     shared.TVAgentModels,
     shared.TVAgentCredentials,
-    shared.TVAgentProviderURL
+    shared.TVAgentProviderURL,
   );
 
 section('the provider config');
 
 {
-  const { settings } = load({ provider: 'anthropic', apiKey: 'sk-ant-real', model: 'claude-sonnet-5' });
+  const { settings } = load({
+    provider: 'anthropic',
+    apiKey: 'sk-ant-real',
+    model: 'claude-sonnet-5',
+  });
   const cfg = await settings();
-  check('anthropic: its own key and its own model', [cfg.apiKey, cfg.model], ['sk-ant-real', 'claude-sonnet-5']);
+  check(
+    'anthropic: its own key and its own model',
+    [cfg.apiKey, cfg.model],
+    ['sk-ant-real', 'claude-sonnet-5'],
+  );
 }
 
 {
@@ -73,7 +81,11 @@ section('the provider config');
     baseUrl: 'http://localhost:11434/v1',
   });
   const cfg = await settings();
-  check('openai: old storage is still readable', [cfg.model, cfg.apiKey], ['gemma4:26b-a4b-it-qat', 'ollama-ignores-this']);
+  check(
+    'openai: old storage is still readable',
+    [cfg.model, cfg.apiKey],
+    ['gemma4:26b-a4b-it-qat', 'ollama-ignores-this'],
+  );
 }
 
 {
@@ -85,7 +97,11 @@ section('the provider config');
     baseUrl: 'https://api.groq.com/openai/v1',
   });
   const cfg = await settings();
-  check('openai: an sk-ant key in the shared slot stays put', [cfg.apiKey, cfg.model], ['', 'gemma4:26b-a4b-it-qat']);
+  check(
+    'openai: an sk-ant key in the shared slot stays put',
+    [cfg.apiKey, cfg.model],
+    ['', 'gemma4:26b-a4b-it-qat'],
+  );
 }
 
 {
@@ -112,31 +128,32 @@ section('the config check before a request');
 
 {
   const { configError } = load({});
-  const err = (cfg) => configError({ provider: 'anthropic', apiKey: '', model: '', baseUrl: '', ...cfg });
+  const err = (cfg) =>
+    configError({ provider: 'anthropic', apiKey: '', model: '', baseUrl: '', ...cfg });
 
   check('anthropic with no key is refused', /Anthropic API key/.test(err({}) || ''), true);
   check('anthropic with a key is fine', err({ apiKey: 'sk-ant' }), null);
   check(
     'openai with no model complains about the model, not an Anthropic key',
     /model/i.test(err({ provider: 'openai', baseUrl: 'http://localhost:11434/v1' }) || ''),
-    true
+    true,
   );
   check(
     'openai with no key but a model is fine',
     err({ provider: 'openai', model: 'gemma4:26b', baseUrl: 'http://localhost:11434/v1' }),
-    null
+    null,
   );
   check(
     'a remote plaintext provider is refused before any request can carry data',
     /HTTPS|localhost|127\.0\.0\.1/.test(
-      err({ provider: 'openai', model: 'm', baseUrl: 'http://api.example.com/v1' }) || ''
+      err({ provider: 'openai', model: 'm', baseUrl: 'http://api.example.com/v1' }) || '',
     ),
-    true
+    true,
   );
   check(
     'a hosted HTTPS provider is accepted',
     err({ provider: 'openai', model: 'm', baseUrl: 'https://api.example.com/v1' }),
-    null
+    null,
   );
 }
 
@@ -161,14 +178,14 @@ async function bodyFor(model) {
     'TVAgentModels',
     'TVAgentCredentials',
     'TVAgentProviderURL',
-    `${src}\nreturn { streamAnthropic };`
+    `${src}\nreturn { streamAnthropic };`,
   )(
     chromeStub({}),
     fetchStub,
     () => {},
     shared.TVAgentModels,
     shared.TVAgentCredentials,
-    shared.TVAgentProviderURL
+    shared.TVAgentProviderURL,
   );
 
   await worker
@@ -176,7 +193,7 @@ async function bodyFor(model) {
       { model, apiKey: 'sk-ant', maxTokens: 32000, effort: 'high' },
       { system: 's', messages: [], tools: [] },
       { postMessage() {} },
-      undefined
+      undefined,
     )
     .catch(() => {});
   return sent;
@@ -184,7 +201,10 @@ async function bodyFor(model) {
 
 {
   const opus = await bodyFor('claude-opus-5');
-  check('opus 5 asks for adaptive thinking', opus.thinking, { type: 'adaptive', display: 'summarized' });
+  check('opus 5 asks for adaptive thinking', opus.thinking, {
+    type: 'adaptive',
+    display: 'summarized',
+  });
   check('opus 5 carries an effort', opus.output_config, { effort: 'high' });
 }
 
@@ -197,7 +217,11 @@ async function bodyFor(model) {
 
 {
   const unknown = await bodyFor('some-model-we-have-never-heard-of');
-  check('an unknown model gets neither', ['thinking' in unknown, 'output_config' in unknown], [false, false]);
+  check(
+    'an unknown model gets neither',
+    ['thinking' in unknown, 'output_config' in unknown],
+    [false, false],
+  );
 }
 
 report();

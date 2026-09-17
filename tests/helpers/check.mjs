@@ -16,7 +16,7 @@ export function check(name, got, want) {
   if (!ok) failed++;
   console.log(
     `${ok ? ' ok  ' : ' FAIL'} ${name}` +
-      (ok ? '' : `\n        got      ${stringify(got)}\n        expected ${stringify(want)}`)
+      (ok ? '' : `\n        got      ${stringify(got)}\n        expected ${stringify(want)}`),
   );
 }
 

@@ -27,8 +27,16 @@ function loadWorker(data, { granted = [], grantRequests = true } = {}) {
     action: { onClicked: { addListener() {} } },
     tabs: { sendMessage: () => Promise.resolve() },
     runtime: {
-      onMessage: { addListener(fn) { messageListener = fn; } },
-      onConnect: { addListener(fn) { connectListener = fn; } },
+      onMessage: {
+        addListener(fn) {
+          messageListener = fn;
+        },
+      },
+      onConnect: {
+        addListener(fn) {
+          connectListener = fn;
+        },
+      },
     },
     storage: {
       local: {
@@ -58,15 +66,20 @@ function loadWorker(data, { granted = [], grantRequests = true } = {}) {
   };
 
   new Function(
-    'chrome', 'fetch', 'importScripts', 'TVAgentModels', 'TVAgentCredentials',
-    'TVAgentProviderURL', src
+    'chrome',
+    'fetch',
+    'importScripts',
+    'TVAgentModels',
+    'TVAgentCredentials',
+    'TVAgentProviderURL',
+    src,
   )(
     chrome,
     fetchStub,
     () => {},
     shared.TVAgentModels,
     shared.TVAgentCredentials,
-    shared.TVAgentProviderURL
+    shared.TVAgentProviderURL,
   );
 
   async function message(msg) {
@@ -81,9 +94,15 @@ function loadWorker(data, { granted = [], grantRequests = true } = {}) {
     let onMessage = null;
     const port = {
       name: 'tvagent-llm',
-      postMessage(value) { posts.push(value); },
+      postMessage(value) {
+        posts.push(value);
+      },
       onDisconnect: { addListener() {} },
-      onMessage: { addListener(fn) { onMessage = fn; } },
+      onMessage: {
+        addListener(fn) {
+          onMessage = fn;
+        },
+      },
     };
     connectListener(port);
     await onMessage(msg);
@@ -116,7 +135,11 @@ section('permission relay');
     baseUrl: 'http://remote.example/v1',
   });
   check('an unsafe provider never reaches chrome.permissions', worker.permissionCalls, []);
-  check('the panel receives a useful URL error', /HTTPS|localhost|127\.0\.0\.1/.test(reply?.error || ''), true);
+  check(
+    'the panel receives a useful URL error',
+    /HTTPS|localhost|127\.0\.0\.1/.test(reply?.error || ''),
+    true,
+  );
 }
 
 section('network privacy gate');
@@ -131,35 +154,53 @@ const configured = {
 {
   const worker = loadWorker(configured, { granted: ['https://api.groq.com/*'] });
   const reply = await worker.message({ type: 'list-models' });
-  check('model listing is refused before affirmative consent', /consent|disclosure/i.test(reply?.error || ''), true);
+  check(
+    'model listing is refused before affirmative consent',
+    /consent|disclosure/i.test(reply?.error || ''),
+    true,
+  );
   check('no key or request reaches the network before consent', worker.fetchCalls, []);
 }
 
 {
   const worker = loadWorker({ ...configured, dataDisclosureAccepted: true });
   const reply = await worker.message({ type: 'list-models' });
-  check('model listing is refused after the optional grant is absent', /access|permission/i.test(reply?.error || ''), true);
+  check(
+    'model listing is refused after the optional grant is absent',
+    /access|permission/i.test(reply?.error || ''),
+    true,
+  );
   check('no key or request reaches an ungranted host', worker.fetchCalls, []);
 }
 
 {
   const worker = loadWorker(configured, { granted: ['https://api.groq.com/*'] });
   const posts = await worker.run({ type: 'run', system: 's', messages: [], tools: [] });
-  check('a model turn is also refused before consent', posts.some((p) => p.type === 'error' && /consent|disclosure/i.test(p.error)), true);
+  check(
+    'a model turn is also refused before consent',
+    posts.some((p) => p.type === 'error' && /consent|disclosure/i.test(p.error)),
+    true,
+  );
   check('the turn performs no fetch before consent', worker.fetchCalls, []);
 }
 
 {
   const worker = loadWorker(
     { ...configured, openaiModel: '', dataDisclosureAccepted: true },
-    { granted: ['https://api.groq.com/*'] }
+    { granted: ['https://api.groq.com/*'] },
   );
   const reply = await worker.message({ type: 'list-models' });
   check('model discovery does not require a model to be selected already', reply, { models: [] });
-  check('the request goes only to the configured model endpoint', worker.fetchCalls.map((c) => c.url), [
-    'https://api.groq.com/openai/v1/models',
-  ]);
-  check('the provider key is attached only after both gates pass', worker.fetchCalls[0]?.options?.headers?.authorization, 'Bearer gsk-secret');
+  check(
+    'the request goes only to the configured model endpoint',
+    worker.fetchCalls.map((c) => c.url),
+    ['https://api.groq.com/openai/v1/models'],
+  );
+  check(
+    'the provider key is attached only after both gates pass',
+    worker.fetchCalls[0]?.options?.headers?.authorization,
+    'Bearer gsk-secret',
+  );
 }
 
 report();

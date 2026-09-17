@@ -11,15 +11,19 @@ function makePort() {
     posted: [],
     listeners: { message: [], disconnect: [] },
     disconnected: 0,
-    postMessage(msg) { port.posted.push(msg); },
-    disconnect() { port.disconnected++; },
+    postMessage(msg) {
+      port.posted.push(msg);
+    },
+    disconnect() {
+      port.disconnected++;
+    },
     onMessage: { addListener: (fn) => port.listeners.message.push(fn) },
     onDisconnect: { addListener: (fn) => port.listeners.disconnect.push(fn) },
     /** What the worker would send back for one turn. */
     answer(content, stopReason = 'tool_use') {
-      port.listeners.message.slice().forEach((fn) =>
-        fn({ type: 'done', message: { content, stop_reason: stopReason } })
-      );
+      port.listeners.message
+        .slice()
+        .forEach((fn) => fn({ type: 'done', message: { content, stop_reason: stopReason } }));
     },
     fail(error) {
       port.listeners.message.slice().forEach((fn) => fn({ type: 'error', error }));
@@ -154,7 +158,11 @@ section('cancel() then send()');
 
   h.ports[1].answer(textTurn('an answer to the second'));
   await tick();
-  check('and its own answer lands', h.agent.messages.at(-1).content, textTurn('an answer to the second'));
+  check(
+    'and its own answer lands',
+    h.agent.messages.at(-1).content,
+    textTurn('an answer to the second'),
+  );
   check('the agent is idle exactly once at the end', h.agent.running, false);
 }
 
@@ -206,7 +214,11 @@ section('what may be called at all');
   check('none of them reached the driver', h.bridge.calls, []);
   const answers = results(h.agent);
   check('each is answered so the conversation stays valid', answers.length, 3);
-  check('and each is answered as an error', answers.every((r) => r.is_error), true);
+  check(
+    'and each is answered as an error',
+    answers.every((r) => r.is_error),
+    true,
+  );
   check('saying there is no such tool', /no tool called/.test(answers[0].content), true);
 }
 
@@ -250,7 +262,11 @@ section('an ordinary run');
 
   check('the tool ran', h.bridge.calls, ['get_chart_context']);
   check('and its result went back', results(h.agent).length, 1);
-  check('the run finished', h.events.some((e) => e.done && !e.done.cancelled), true);
+  check(
+    'the run finished',
+    h.events.some((e) => e.done && !e.done.cancelled),
+    true,
+  );
   check('and the agent is idle', h.agent.running, false);
 }
 
@@ -270,7 +286,11 @@ section('a turn with no content left in it');
 
   const roles = h.agent.messages.map((m) => m.role);
   check('no empty assistant turn was recorded', roles, ['user']);
-  check('the run ended rather than looping', h.events.some((e) => e.done), true);
+  check(
+    'the run ended rather than looping',
+    h.events.some((e) => e.done),
+    true,
+  );
   check('and the agent is idle', h.agent.running, false);
 }
 
@@ -282,7 +302,11 @@ section('a turn with no content left in it');
   h.port().answer(textTurn('Hi.'), 'end_turn');
   await tick();
 
-  check('a turn that does say something is recorded', h.agent.messages.map((m) => m.role), ['user', 'assistant']);
+  check(
+    'a turn that does say something is recorded',
+    h.agent.messages.map((m) => m.role),
+    ['user', 'assistant'],
+  );
 }
 
 report();

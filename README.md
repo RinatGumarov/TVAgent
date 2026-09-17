@@ -45,23 +45,23 @@ are not predictions.
 
 ### Settings
 
-| Setting | |
-|---|---|
-| Provider | Anthropic, or any OpenAI-compatible endpoint |
-| API key | Kept in the extension's local storage and sent only to the selected provider |
-| Model | Claude Opus 5, Sonnet 5 or Haiku 4.5; for other providers, the list is loaded from the server |
-| Effort | Reasoning effort for Claude models |
-| Run Pine edits without asking | Skips the confirmation for the Pine tools |
+| Setting                       |                                                                                               |
+| ----------------------------- | --------------------------------------------------------------------------------------------- |
+| Provider                      | Anthropic, or any OpenAI-compatible endpoint                                                  |
+| API key                       | Kept in the extension's local storage and sent only to the selected provider                  |
+| Model                         | Claude Opus 5, Sonnet 5 or Haiku 4.5; for other providers, the list is loaded from the server |
+| Effort                        | Reasoning effort for Claude models                                                            |
+| Run Pine edits without asking | Skips the confirmation for the Pine tools                                                     |
 
 ### What the model can do
 
-| Group | Tools |
-|---|---|
-| Read | `get_chart_context`, `get_series_data`, `list_indicators`, `search_indicators`, `list_drawings`, `get_strategy_report` |
-| Chart | `set_symbol`, `set_timeframe`, `set_visible_range` |
-| Indicators | `add_indicator`, `update_indicator`, `remove_indicator` |
-| Drawings | `create_horizontal_line`, `create_vertical_line`, `create_trend_line`, `create_text`, `remove_drawing` |
-| Pine | `open_pine_editor`, `set_pine_code`, `add_pine_to_chart` |
+| Group      | Tools                                                                                                                  |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Read       | `get_chart_context`, `get_series_data`, `list_indicators`, `search_indicators`, `list_drawings`, `get_strategy_report` |
+| Chart      | `set_symbol`, `set_timeframe`, `set_visible_range`                                                                     |
+| Indicators | `add_indicator`, `update_indicator`, `remove_indicator`                                                                |
+| Drawings   | `create_horizontal_line`, `create_vertical_line`, `create_trend_line`, `create_text`, `remove_drawing`                 |
+| Pine       | `open_pine_editor`, `set_pine_code`, `add_pine_to_chart`                                                               |
 
 The model sees these tools and nothing else about TradingView. A name that is
 not on the list is refused. Tools that the page cannot support, such as the

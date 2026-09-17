@@ -9,8 +9,11 @@ function makeChrome(store = {}) {
   return {
     storage: {
       local: {
-        get: async (key) => (typeof key === 'string' ? (key in store ? { [key]: store[key] } : {}) : { ...store }),
-        set: async (obj) => { Object.assign(store, obj); },
+        get: async (key) =>
+          typeof key === 'string' ? (key in store ? { [key]: store[key] } : {}) : { ...store },
+        set: async (obj) => {
+          Object.assign(store, obj);
+        },
       },
     },
   };
@@ -53,13 +56,25 @@ section('the native path');
 
   check('native: mode', mode, 'native');
   check('native: widgetbar_mount was called once', mountCalls, 1);
-  check('native: root is inside the widget bar page', root.parent && root.parent.id, 'tva-widgetbar-page');
+  check(
+    'native: root is inside the widget bar page',
+    root.parent && root.parent.id,
+    'tva-widgetbar-page',
+  );
   check(
     'native: classes are tva-native only, no overlay/hidden',
-    [root.classList.contains('tva-native'), root.classList.contains('tva-overlay'), root.classList.contains('tva-hidden')],
-    [true, false, false]
+    [
+      root.classList.contains('tva-native'),
+      root.classList.contains('tva-overlay'),
+      root.classList.contains('tva-hidden'),
+    ],
+    [true, false, false],
   );
-  check('native: no resizer was added', root.children.some((c) => c.className === 'tva-resizer'), false);
+  check(
+    'native: no resizer was added',
+    root.children.some((c) => c.className === 'tva-resizer'),
+    false,
+  );
 }
 
 section('the overlay path');
@@ -90,11 +105,23 @@ section('the overlay path');
   check('overlay: root hangs off documentElement', root.parent === doc.documentElement, true);
   check(
     'overlay: classes are tva-overlay and tva-hidden, no native',
-    [root.classList.contains('tva-overlay'), root.classList.contains('tva-hidden'), root.classList.contains('tva-native')],
-    [true, true, false]
+    [
+      root.classList.contains('tva-overlay'),
+      root.classList.contains('tva-hidden'),
+      root.classList.contains('tva-native'),
+    ],
+    [true, true, false],
   );
-  check('overlay: a resizer was added', root.children.some((c) => c.className === 'tva-resizer'), true);
-  check('overlay: the reason was noted in the console', infoLogs.some((s) => /widget bar unavailable/.test(s)), true);
+  check(
+    'overlay: a resizer was added',
+    root.children.some((c) => c.className === 'tva-resizer'),
+    true,
+  );
+  check(
+    'overlay: the reason was noted in the console',
+    infoLogs.some((s) => /widget bar unavailable/.test(s)),
+    true,
+  );
 }
 
 section('toggle');
@@ -111,8 +138,14 @@ section('toggle');
       bridge.calls.push(method);
       if (method === 'widgetbar_mount') return { ok: true, pageId: makeMountedPage(doc).id };
       if (method === 'widgetbar_state') return { active: state.active };
-      if (method === 'widgetbar_activate') { state.active = true; return { ok: true }; }
-      if (method === 'widgetbar_deactivate') { state.active = false; return { ok: true }; }
+      if (method === 'widgetbar_activate') {
+        state.active = true;
+        return { ok: true };
+      }
+      if (method === 'widgetbar_deactivate') {
+        state.active = false;
+        return { ok: true };
+      }
       throw new Error('unexpected call ' + method);
     },
   };
@@ -121,11 +154,17 @@ section('toggle');
 
   bridge.calls.length = 0;
   await Mount.toggle();
-  check('native toggle asks for state, then activates', bridge.calls, ['widgetbar_state', 'widgetbar_activate']);
+  check('native toggle asks for state, then activates', bridge.calls, [
+    'widgetbar_state',
+    'widgetbar_activate',
+  ]);
 
   bridge.calls.length = 0;
   await Mount.toggle();
-  check('native toggle again asks for state, then deactivates', bridge.calls, ['widgetbar_state', 'widgetbar_deactivate']);
+  check('native toggle again asks for state, then deactivates', bridge.calls, [
+    'widgetbar_state',
+    'widgetbar_deactivate',
+  ]);
 }
 
 {
@@ -147,9 +186,17 @@ section('toggle');
   bridge.calls.length = 0;
   check('the overlay starts hidden', root.classList.contains('tva-hidden'), true);
   await Mount.toggle();
-  check('overlay toggle shows the panel, the bridge is untouched', [root.classList.contains('tva-hidden'), bridge.calls], [false, []]);
+  check(
+    'overlay toggle shows the panel, the bridge is untouched',
+    [root.classList.contains('tva-hidden'), bridge.calls],
+    [false, []],
+  );
   await Mount.toggle();
-  check('overlay toggle hides it again, still untouched', [root.classList.contains('tva-hidden'), bridge.calls], [true, []]);
+  check(
+    'overlay toggle hides it again, still untouched',
+    [root.classList.contains('tva-hidden'), bridge.calls],
+    [true, []],
+  );
 }
 
 section('onActive');
@@ -190,7 +237,9 @@ section('bfcache restore');
   let mountCalls = 0;
   let onCalls = 0;
   const bridge = {
-    on() { onCalls++; },
+    on() {
+      onCalls++;
+    },
     async call(method) {
       if (method === 'widgetbar_mount') {
         mountCalls++;
@@ -212,11 +261,15 @@ section('bfcache restore');
   // What the driver's pagehide teardown does: the page element goes, but not
   // what the content script put inside it.
   firstHost.remove();
-  check('the old page is detached from the document', doc.getElementById('tva-widgetbar-page'), null);
+  check(
+    'the old page is detached from the document',
+    doc.getElementById('tva-widgetbar-page'),
+    null,
+  );
   check(
     'root, message and all, went with the old node rather than being rebuilt',
     [firstHost.children.includes(root), root.children.includes(chatMsg)],
-    [true, true]
+    [true, true],
   );
 
   await Promise.all(win.fire('pageshow', { persisted: true }));
@@ -265,10 +318,13 @@ section('bfcache restore: the remount fails');
   let shouldFail = false;
   let activeHandler = null;
   const bridge = {
-    on(type, fn) { if (type === 'widgetbar-active') activeHandler = fn; },
+    on(type, fn) {
+      if (type === 'widgetbar-active') activeHandler = fn;
+    },
     async call(method) {
       if (method === 'widgetbar_mount') {
-        if (shouldFail) throw new Error('TradingView widget bar is not on this page (anonymous session?).');
+        if (shouldFail)
+          throw new Error('TradingView widget bar is not on this page (anonymous session?).');
         return { ok: true, pageId: makeMountedPage(doc).id };
       }
       throw new Error('unexpected call ' + method);
@@ -286,10 +342,18 @@ section('bfcache restore: the remount fails');
   check('root moved onto documentElement', root.parent === doc.documentElement, true);
   check(
     'the classes are overlay/hidden now, native is gone',
-    [root.classList.contains('tva-overlay'), root.classList.contains('tva-hidden'), root.classList.contains('tva-native')],
-    [true, true, false]
+    [
+      root.classList.contains('tva-overlay'),
+      root.classList.contains('tva-hidden'),
+      root.classList.contains('tva-native'),
+    ],
+    [true, true, false],
   );
-  check('a resizer was wired up on the fallback', root.children.some((c) => c.className === 'tva-resizer'), true);
+  check(
+    'a resizer was wired up on the fallback',
+    root.children.some((c) => c.className === 'tva-resizer'),
+    true,
+  );
 
   // The driver's layout subscriptions outlive the mount, so a stale
   // widgetbar-active can still arrive after the fallback; it must not reach

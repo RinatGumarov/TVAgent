@@ -57,7 +57,11 @@ section('the round trip');
 {
   const { bridge } = await boot();
   const report_ = await bridge.call('probe', {});
-  check('a call reaches the driver and comes back', [report_.ready, report_.symbol], [true, 'BINANCE:BTCUSDT']);
+  check(
+    'a call reaches the driver and comes back',
+    [report_.ready, report_.symbol],
+    [true, 'BINANCE:BTCUSDT'],
+  );
 }
 
 section('a page script cannot answer');
@@ -84,7 +88,13 @@ section('a page script cannot answer');
   // not the secret.
   page.addEventListener('message', (e) => {
     if (e.data?.source !== 'tva-req') return;
-    page.postMessage({ source: 'tva-res', id: e.data.id, stamp: 'x'.repeat(64), ok: true, result: { poisoned: true } });
+    page.postMessage({
+      source: 'tva-res',
+      id: e.data.id,
+      stamp: 'x'.repeat(64),
+      ok: true,
+      result: { poisoned: true },
+    });
   });
   const answer = await bridge.call('probe', {});
   check('a wrong stamp is ignored too', answer.poisoned === undefined, true);
@@ -186,7 +196,12 @@ section('the event channel');
 
   // Only the driver can stamp an event; this posts the shape of one, as a
   // page script would.
-  main.postMessage({ source: 'tva-evt', id: 'forged', type: 'widgetbar-active', payload: { active: true } });
+  main.postMessage({
+    source: 'tva-evt',
+    id: 'forged',
+    type: 'widgetbar-active',
+    payload: { active: true },
+  });
   await settle();
   check('an unstamped event is dropped', seen, []);
 }
@@ -197,7 +212,7 @@ section('the event channel');
   bridge.on('widgetbar-active', (p) => seen.push(p));
   iso.deliver(
     { source: 'tva-evt', id: 'e1', type: 'widgetbar-active', payload: { active: true } },
-    'https://evil.example'
+    'https://evil.example',
   );
   await settle();
   check('a foreign origin is dropped', seen, []);
@@ -208,7 +223,12 @@ section('a driver that never answers');
 {
   const { spawn } = makeWorlds();
   const iso = spawn({});
-  const stubs = { localStorage: { getItem: () => null }, performance: { now: () => 0 }, document: {}, console };
+  const stubs = {
+    localStorage: { getItem: () => null },
+    performance: { now: () => 0 },
+    document: {},
+    console,
+  };
   evaluate('shared/wire.js', { window: iso, ...stubs });
   evaluate('shared/wait.js', { window: iso, ...stubs });
   evaluate('content/bridge.js', { window: iso, ...stubs });
@@ -219,7 +239,11 @@ section('a driver that never answers');
   // is still pending rather than resolved against an unauthenticated channel.
   await tick(50);
   check('a call does not resolve without a handshake', error, null);
-  check('and nothing was answered in the meantime', await Promise.race([call, Promise.resolve('pending')]), 'pending');
+  check(
+    'and nothing was answered in the meantime',
+    await Promise.race([call, Promise.resolve('pending')]),
+    'pending',
+  );
 }
 
 report();

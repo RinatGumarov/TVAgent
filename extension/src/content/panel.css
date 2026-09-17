@@ -6,7 +6,7 @@
   all: initial;
   display: flex;
   flex-direction: column;
-  font-family: -apple-system, "system-ui", "Trebuchet MS", Roboto, Ubuntu, sans-serif;
+  font-family: -apple-system, 'system-ui', 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
   font-size: 13px;
   line-height: 1.55;
   color: var(--tva-fg);
@@ -48,9 +48,16 @@
 }
 
 #tva-root.tva-hidden,
-#tva-root .tva-hidden { display: none !important; }
-#tva-root * { box-sizing: border-box; font-family: inherit; }
-#tva-root .tva-spacer { flex: 1 1 auto; }
+#tva-root .tva-hidden {
+  display: none !important;
+}
+#tva-root * {
+  box-sizing: border-box;
+  font-family: inherit;
+}
+#tva-root .tva-spacer {
+  flex: 1 1 auto;
+}
 
 #tva-root .tva-resizer {
   position: absolute;
@@ -61,7 +68,10 @@
   cursor: ew-resize;
   z-index: 2;
 }
-#tva-root .tva-resizer:hover { background: var(--tva-accent); opacity: 0.4; }
+#tva-root .tva-resizer:hover {
+  background: var(--tva-accent);
+  opacity: 0.4;
+}
 
 /* ---------------------------------------------------------------- header */
 
@@ -73,7 +83,10 @@
   padding: 0 6px 0 12px;
   flex: 0 0 auto;
 }
-#tva-root .tva-brand { font-size: 14px; font-weight: 600; }
+#tva-root .tva-brand {
+  font-size: 14px;
+  font-weight: 600;
+}
 #tva-root .tva-icon {
   background: none;
   border: none;
@@ -85,7 +98,10 @@
   font-size: 13px;
   line-height: 1;
 }
-#tva-root .tva-icon:hover { background: var(--tva-border); color: var(--tva-fg); }
+#tva-root .tva-icon:hover {
+  background: var(--tva-border);
+  color: var(--tva-fg);
+}
 
 /* ---------------------------------------------------------------- context */
 
@@ -108,16 +124,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-#tva-root .tva-status { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+#tva-root .tva-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
 #tva-root .tva-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--tva-fg-dim);
 }
-#tva-root .tva-status.ok .tva-dot { background: var(--tva-ok); }
-#tva-root .tva-status.warn .tva-dot { background: var(--tva-warn); }
-#tva-root .tva-status.err .tva-dot { background: var(--tva-err); }
+#tva-root .tva-status.ok .tva-dot {
+  background: var(--tva-ok);
+}
+#tva-root .tva-status.warn .tva-dot {
+  background: var(--tva-warn);
+}
+#tva-root .tva-status.err .tva-dot {
+  background: var(--tva-err);
+}
 
 /* ---------------------------------------------------------------- body */
 
@@ -135,10 +162,25 @@
   gap: 10px;
 }
 
-#tva-root .tva-empty { margin-top: auto; padding: 12px; }
-#tva-root .tva-empty h2 { font-size: 16px; font-weight: 600; margin: 0 0 4px; }
-#tva-root .tva-empty p { font-size: 13px; color: var(--tva-fg-dim); margin: 0 0 12px; }
-#tva-root .tva-suggestions { display: flex; flex-direction: column; gap: 6px; }
+#tva-root .tva-empty {
+  margin-top: auto;
+  padding: 12px;
+}
+#tva-root .tva-empty h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+#tva-root .tva-empty p {
+  font-size: 13px;
+  color: var(--tva-fg-dim);
+  margin: 0 0 12px;
+}
+#tva-root .tva-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 #tva-root .tva-suggestion {
   display: flex;
   align-items: center;
@@ -152,13 +194,24 @@
   font-size: 13px;
   cursor: pointer;
 }
-#tva-root .tva-suggestion span { flex: 1 1 auto; }
-#tva-root .tva-suggestion i { font-style: normal; color: var(--tva-fg-dim); }
-#tva-root .tva-suggestion:hover { border-color: var(--tva-accent); }
+#tva-root .tva-suggestion span {
+  flex: 1 1 auto;
+}
+#tva-root .tva-suggestion i {
+  font-style: normal;
+  color: var(--tva-fg-dim);
+}
+#tva-root .tva-suggestion:hover {
+  border-color: var(--tva-accent);
+}
 
 /* ---------------------------------------------------------------- messages */
 
-#tva-root .tva-msg { max-width: 100%; word-wrap: break-word; overflow-wrap: anywhere; }
+#tva-root .tva-msg {
+  max-width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
 #tva-root .tva-msg.user {
   align-self: flex-end;
   background: var(--tva-accent-tint);
@@ -168,7 +221,10 @@
   max-width: 88%;
   white-space: pre-wrap;
 }
-#tva-root .tva-msg.assistant { align-self: stretch; white-space: pre-wrap; }
+#tva-root .tva-msg.assistant {
+  align-self: stretch;
+  white-space: pre-wrap;
+}
 #tva-root .tva-msg.error {
   align-self: stretch;
   color: var(--tva-err);
@@ -204,11 +260,18 @@
   margin: 6px 0;
   white-space: pre;
 }
-#tva-root pre code { background: none; border: none; padding: 0; }
+#tva-root pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
 
 /* ---------------------------------------------------------------- run */
 
-#tva-root details.tva-run { align-self: stretch; font-size: 12px; }
+#tva-root details.tva-run {
+  align-self: stretch;
+  font-size: 12px;
+}
 #tva-root details.tva-run > summary {
   cursor: pointer;
   list-style: none;
@@ -218,14 +281,19 @@
   color: var(--tva-fg-dim);
   padding: 2px 0;
 }
-#tva-root details.tva-run > summary::-webkit-details-marker { display: none; }
+#tva-root details.tva-run > summary::-webkit-details-marker {
+  display: none;
+}
 #tva-root .tva-run-mark {
   width: 12px;
   height: 12px;
   border-radius: 50%;
   border: 1px solid var(--tva-fg-dim);
 }
-#tva-root .tva-run-mark.done { border-color: var(--tva-ok); background: var(--tva-ok); }
+#tva-root .tva-run-mark.done {
+  border-color: var(--tva-ok);
+  background: var(--tva-ok);
+}
 #tva-root .tva-run-body {
   border-left: 1px solid var(--tva-border);
   margin: 4px 0 0 5px;
@@ -239,15 +307,27 @@
   white-space: pre-wrap;
   font-size: 11.5px;
 }
-#tva-root .tva-call-head { display: flex; align-items: center; gap: 7px; }
+#tva-root .tva-call-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
 #tva-root .tva-call-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--tva-fg);
   font-size: 11.5px;
 }
-#tva-root .tva-call-status { margin-left: auto; font-size: 11px; color: var(--tva-fg-dim); }
-#tva-root .tva-call-status.ok { color: var(--tva-ok); }
-#tva-root .tva-call-status.err { color: var(--tva-err); }
+#tva-root .tva-call-status {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--tva-fg-dim);
+}
+#tva-root .tva-call-status.ok {
+  color: var(--tva-ok);
+}
+#tva-root .tva-call-status.err {
+  color: var(--tva-err);
+}
 #tva-root .tva-call-body {
   font-size: 11px;
   color: var(--tva-fg-dim);
@@ -265,9 +345,18 @@
   padding: 10px;
   font-size: 12px;
 }
-#tva-root .tva-confirm-head { margin-bottom: 4px; }
-#tva-root .tva-confirm-actions { display: flex; gap: 8px; margin-top: 9px; }
-#tva-root .tva-confirm-outcome { margin-top: 6px; color: var(--tva-fg-dim); }
+#tva-root .tva-confirm-head {
+  margin-bottom: 4px;
+}
+#tva-root .tva-confirm-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+}
+#tva-root .tva-confirm-outcome {
+  margin-top: 6px;
+  color: var(--tva-fg-dim);
+}
 #tva-root .tva-btn {
   border: 1px solid var(--tva-border);
   background: none;
@@ -277,7 +366,9 @@
   cursor: pointer;
   font-size: 12px;
 }
-#tva-root .tva-btn:hover { border-color: var(--tva-accent); }
+#tva-root .tva-btn:hover {
+  border-color: var(--tva-accent);
+}
 #tva-root .tva-btn.primary {
   background: var(--tva-accent);
   border-color: var(--tva-accent);
@@ -286,13 +377,18 @@
 
 /* ---------------------------------------------------------------- composer */
 
-#tva-root .tva-composer { padding: 8px 12px 10px; flex: 0 0 auto; }
+#tva-root .tva-composer {
+  padding: 8px 12px 10px;
+  flex: 0 0 auto;
+}
 #tva-root .tva-field {
   border: 1px solid var(--tva-border);
   border-radius: 8px;
   padding: 8px 8px 6px;
 }
-#tva-root .tva-field:focus-within { border-color: var(--tva-accent); }
+#tva-root .tva-field:focus-within {
+  border-color: var(--tva-accent);
+}
 #tva-root .tva-field textarea {
   width: 100%;
   border: none;
@@ -304,7 +400,12 @@
   line-height: 1.5;
   max-height: 160px;
 }
-#tva-root .tva-field-row { display: flex; align-items: center; justify-content: flex-end; margin-top: 6px; }
+#tva-root .tva-field-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 6px;
+}
 
 /* Model and context sit under the field; the row is also the popover's
    containing block.
@@ -332,14 +433,27 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-#tva-root .tva-chip:hover { color: var(--tva-fg); background: var(--tva-border); }
+#tva-root .tva-chip:hover {
+  color: var(--tva-fg);
+  background: var(--tva-border);
+}
 
 /* Wide states the binding inline and is not a control — only the narrow rules
    below turn it into something worth clicking. */
-#tva-root .tva-chip-context { cursor: default; }
-#tva-root .tva-chip-context:hover { color: var(--tva-fg-dim); background: none; }
+#tva-root .tva-chip-context {
+  cursor: default;
+}
+#tva-root .tva-chip-context:hover {
+  color: var(--tva-fg-dim);
+  background: none;
+}
 /* The caret only earns its place once the chip actually opens something. */
-#tva-root .tva-chip-context i { display: none; font-style: normal; font-size: 10px; margin-left: 4px; }
+#tva-root .tva-chip-context i {
+  display: none;
+  font-style: normal;
+  font-size: 10px;
+  margin-left: 4px;
+}
 
 /* ------------------------------------------------------- context popover */
 
@@ -357,15 +471,27 @@
   font-size: 12px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
 }
-#tva-root .tva-ctx-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
-#tva-root .tva-ctx-row span { color: var(--tva-fg-dim); flex: 0 0 auto; }
+#tva-root .tva-ctx-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+#tva-root .tva-ctx-row span {
+  color: var(--tva-fg-dim);
+  flex: 0 0 auto;
+}
 #tva-root .tva-ctx-row b {
   font-weight: 400;
   margin-left: auto;
   text-align: right;
   overflow-wrap: anywhere;
 }
-#tva-root .tva-ctx-note { margin: 7px 0 0; font-size: 11px; color: var(--tva-fg-dim); }
+#tva-root .tva-ctx-note {
+  margin: 7px 0 0;
+  font-size: 11px;
+  color: var(--tva-fg-dim);
+}
 #tva-root .tva-send {
   flex: 0 0 auto;
   width: 26px;
@@ -378,8 +504,14 @@
   font-size: 13px;
   line-height: 1;
 }
-#tva-root .tva-send:disabled { background: var(--tva-border); color: var(--tva-fg-dim); cursor: default; }
-#tva-root .tva-send.stop { background: var(--tva-fg-dim); }
+#tva-root .tva-send:disabled {
+  background: var(--tva-border);
+  color: var(--tva-fg-dim);
+  cursor: default;
+}
+#tva-root .tva-send.stop {
+  background: var(--tva-fg-dim);
+}
 #tva-root .tva-composer-hint {
   font-size: 11px;
   color: var(--tva-fg-dim);
@@ -390,7 +522,9 @@
 
 /* ---------------------------------------------------------------- settings */
 
-#tva-root .tva-settings { padding: 12px; }
+#tva-root .tva-settings {
+  padding: 12px;
+}
 #tva-root .tva-disclosure {
   margin: 0 0 16px;
   padding: 11px;
@@ -420,16 +554,22 @@
   color: var(--tva-fg);
   line-height: 1.35;
 }
-#tva-root .tva-set-group { margin-bottom: 14px; }
+#tva-root .tva-set-group {
+  margin-bottom: 14px;
+}
 #tva-root .tva-set-label {
   display: block;
   font-size: 11px;
   color: var(--tva-fg-dim);
   margin-bottom: 6px;
 }
-#tva-root .tva-set-hint { font-size: 11px; color: var(--tva-fg-dim); margin: 5px 0 0; }
-#tva-root .tva-settings input[type="text"],
-#tva-root .tva-settings input[type="password"] {
+#tva-root .tva-set-hint {
+  font-size: 11px;
+  color: var(--tva-fg-dim);
+  margin: 5px 0 0;
+}
+#tva-root .tva-settings input[type='text'],
+#tva-root .tva-settings input[type='password'] {
   width: 100%;
   background: none;
   color: var(--tva-fg);
@@ -439,7 +579,9 @@
   font-size: 12px;
   outline: none;
 }
-#tva-root .tva-settings input:focus { border-color: var(--tva-accent); }
+#tva-root .tva-settings input:focus {
+  border-color: var(--tva-accent);
+}
 #tva-root .tva-secondary {
   width: 100%;
   margin-top: 8px;
@@ -454,7 +596,9 @@
 }
 /* The API key fields are closed shadow roots, so their own styling is inside
    them (panel-settings.js) — this is only the box they sit in. */
-#tva-root .tva-secret { display: block; }
+#tva-root .tva-secret {
+  display: block;
+}
 #tva-root .tva-seg {
   display: flex;
   border: 1px solid var(--tva-border);
@@ -471,9 +615,20 @@
   font-size: 12px;
   cursor: pointer;
 }
-#tva-root .tva-seg button:last-child { border-right: none; }
-#tva-root .tva-seg button.on { background: var(--tva-accent-tint); color: var(--tva-accent); }
-#tva-root .tva-check { display: flex; align-items: center; gap: 7px; font-size: 12px; cursor: pointer; }
+#tva-root .tva-seg button:last-child {
+  border-right: none;
+}
+#tva-root .tva-seg button.on {
+  background: var(--tva-accent-tint);
+  color: var(--tva-accent);
+}
+#tva-root .tva-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  cursor: pointer;
+}
 
 /* ---------------------------------------------------------------- narrow
 
@@ -484,24 +639,52 @@
 
 /* The dot already carries the state; the word is what does not fit. Still in
    the DOM and still in the title, so hover and screen readers keep it. */
-#tva-root.tva-narrow .tva-status span { display: none; }
+#tva-root.tva-narrow .tva-status span {
+  display: none;
+}
 
-#tva-root.tva-narrow .tva-chip-context { cursor: pointer; }
-#tva-root.tva-narrow .tva-chip-context i { display: inline; }
-#tva-root.tva-narrow .tva-chip-context:hover { color: var(--tva-fg); background: var(--tva-border); }
-#tva-root.tva-narrow .tva-composer-hint { display: none; }
+#tva-root.tva-narrow .tva-chip-context {
+  cursor: pointer;
+}
+#tva-root.tva-narrow .tva-chip-context i {
+  display: inline;
+}
+#tva-root.tva-narrow .tva-chip-context:hover {
+  color: var(--tva-fg);
+  background: var(--tva-border);
+}
+#tva-root.tva-narrow .tva-composer-hint {
+  display: none;
+}
 
-#tva-root.tva-narrow .tva-header { padding: 0 4px 0 8px; }
-#tva-root.tva-narrow .tva-context { padding: 0 8px 8px; }
+#tva-root.tva-narrow .tva-header {
+  padding: 0 4px 0 8px;
+}
+#tva-root.tva-narrow .tva-context {
+  padding: 0 8px 8px;
+}
 #tva-root.tva-narrow .tva-list,
 #tva-root.tva-narrow .tva-empty,
-#tva-root.tva-narrow .tva-settings { padding: 10px 8px; }
-#tva-root.tva-narrow .tva-composer { padding: 8px 8px 10px; }
+#tva-root.tva-narrow .tva-settings {
+  padding: 10px 8px;
+}
+#tva-root.tva-narrow .tva-composer {
+  padding: 8px 8px 10px;
+}
 /* "OpenAI-compatible" wraps to two lines inside its own segment otherwise. */
-#tva-root.tva-narrow .tva-seg button { font-size: 11px; padding: 6px 2px; }
-#tva-root.tva-narrow .tva-composer-chips { gap: 4px; }
-#tva-root.tva-narrow .tva-empty h2 { font-size: 15px; }
-#tva-root.tva-narrow .tva-suggestion { padding: 9px 10px; }
+#tva-root.tva-narrow .tva-seg button {
+  font-size: 11px;
+  padding: 6px 2px;
+}
+#tva-root.tva-narrow .tva-composer-chips {
+  gap: 4px;
+}
+#tva-root.tva-narrow .tva-empty h2 {
+  font-size: 15px;
+}
+#tva-root.tva-narrow .tva-suggestion {
+  padding: 9px 10px;
+}
 
 /* ---------------------------------------------------------------- tab button
 

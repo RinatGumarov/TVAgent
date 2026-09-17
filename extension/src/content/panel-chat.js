@@ -14,8 +14,9 @@ window.TVAgentChat = (() => {
   const MAX_BLOB_CHARS = 2000;
 
   const esc = (s) =>
-    String(s).replace(/[&<>"']/g, (c) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])
+    String(s).replace(
+      /[&<>"']/g,
+      (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
     );
 
   /**
@@ -287,7 +288,7 @@ window.TVAgentChat = (() => {
             el.querySelector('.tva-confirm-actions')?.remove();
             el.insertAdjacentHTML(
               'beforeend',
-              `<div class="tva-confirm-outcome">${word || (allowed ? 'Allowed' : 'Denied')}</div>`
+              `<div class="tva-confirm-outcome">${word || (allowed ? 'Allowed' : 'Denied')}</div>`,
             );
             resolve(allowed);
           };

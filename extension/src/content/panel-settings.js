@@ -9,8 +9,14 @@ window.TVAgentSettings = (() => {
   'use strict';
 
   const KEYS = [
-    'apiKey', 'model', 'effort', 'autoApprove',
-    'provider', 'baseUrl', 'openaiApiKey', 'openaiModel',
+    'apiKey',
+    'model',
+    'effort',
+    'autoApprove',
+    'provider',
+    'baseUrl',
+    'openaiApiKey',
+    'openaiModel',
     'dataDisclosureAccepted',
   ];
 
@@ -57,8 +63,12 @@ window.TVAgentSettings = (() => {
     const input = shadow.querySelector('input');
     input.placeholder = placeholder;
     return {
-      get value() { return input.value.trim(); },
-      set value(v) { input.value = v || ''; },
+      get value() {
+        return input.value.trim();
+      },
+      set value(v) {
+        input.value = v || '';
+      },
       onChange: (fn) => input.addEventListener('change', fn),
     };
   }
@@ -181,17 +191,14 @@ window.TVAgentSettings = (() => {
     function paintSegments() {
       hostEl.querySelectorAll('.tva-seg').forEach((seg) => {
         const value = state[seg.dataset.seg];
-        seg.querySelectorAll('button').forEach((b) =>
-          b.classList.toggle('on', b.dataset.value === value)
-        );
+        seg
+          .querySelectorAll('button')
+          .forEach((b) => b.classList.toggle('on', b.dataset.value === value));
       });
       hostEl.querySelectorAll('[data-for]').forEach((el) => {
         el.classList.toggle('tva-hidden', el.dataset.for !== state.provider);
       });
-      accessEl.classList.toggle(
-        'tva-hidden',
-        state.provider !== 'openai' || state.providerAllowed
-      );
+      accessEl.classList.toggle('tva-hidden', state.provider !== 'openai' || state.providerAllowed);
       onChange(current());
     }
 
@@ -283,9 +290,11 @@ window.TVAgentSettings = (() => {
         const field = seg.dataset.seg;
         state[field] = btn.dataset.value;
         const stored =
-          field === 'provider' ? { provider: state.provider }
-          : field === 'model' ? { model: state.model }
-          : { effort: state.effort };
+          field === 'provider'
+            ? { provider: state.provider }
+            : field === 'model'
+              ? { model: state.model }
+              : { effort: state.effort };
         chrome.storage.local.set(stored).then(async () => {
           if (field !== 'provider') return;
           if (state.provider === 'anthropic' && state.providerBaseUrl) {
@@ -336,7 +345,7 @@ window.TVAgentSettings = (() => {
       onChange(current());
     });
     autoEl.addEventListener('change', () =>
-      chrome.storage.local.set({ autoApprove: autoEl.checked })
+      chrome.storage.local.set({ autoApprove: autoEl.checked }),
     );
 
     /**

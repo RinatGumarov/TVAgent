@@ -4,13 +4,7 @@
  * their interfaces.
  */
 import { check, section, report } from './helpers/check.mjs';
-import {
-  makeDocument,
-  makeElement,
-  click,
-  fireInput,
-  fireKeydown,
-} from './helpers/dom.mjs';
+import { makeDocument, makeElement, click, fireInput, fireKeydown } from './helpers/dom.mjs';
 import { readSource } from './helpers/load.mjs';
 
 const src = readSource('content/panel.js');
@@ -21,7 +15,9 @@ function makeChrome() {
     runtime: {
       onMessage: { addListener: (fn) => messageListeners.push(fn) },
     },
-    _fireMessage(msg) { messageListeners.slice().forEach((fn) => fn(msg)); },
+    _fireMessage(msg) {
+      messageListeners.slice().forEach((fn) => fn(msg));
+    },
   };
 }
 
@@ -29,7 +25,10 @@ function makeChrome() {
 
 function makeChatModule(doc) {
   const esc = (s) =>
-    String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    String(s).replace(
+      /[&<>"']/g,
+      (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+    );
 
   function create(listEl) {
     const log = { user: [], notice: [], error: [], clear: 0, startRun: 0, endRun: 0 };
@@ -42,18 +41,36 @@ function makeChatModule(doc) {
     }
     return {
       log,
-      clear() { log.clear++; listEl.children = []; },
-      user(t) { log.user.push(t); return addMsg('user', t); },
-      notice(t) { log.notice.push(t); return addMsg('notice', t); },
-      error(t) { log.error.push(t); return addMsg('error', t); },
-      startRun() { log.startRun++; },
-      endRun() { log.endRun++; },
+      clear() {
+        log.clear++;
+        listEl.children = [];
+      },
+      user(t) {
+        log.user.push(t);
+        return addMsg('user', t);
+      },
+      notice(t) {
+        log.notice.push(t);
+        return addMsg('notice', t);
+      },
+      error(t) {
+        log.error.push(t);
+        return addMsg('error', t);
+      },
+      startRun() {
+        log.startRun++;
+      },
+      endRun() {
+        log.endRun++;
+      },
       onBlockStart() {},
       onThinking() {},
       onText() {},
       onToolStart() {},
       onToolResult() {},
-      onConfirm() { return Promise.resolve(true); },
+      onConfirm() {
+        return Promise.resolve(true);
+      },
     };
   }
 
@@ -67,8 +84,12 @@ function makeChatModule(doc) {
 function makeResizeObserverStub() {
   const state = { cb: null, observed: [] };
   state.ctor = class {
-    constructor(cb) { state.cb = cb; }
-    observe(el) { state.observed.push(el); }
+    constructor(cb) {
+      state.cb = cb;
+    }
+    observe(el) {
+      state.observed.push(el);
+    }
     disconnect() {}
   };
   state.resize = (...widths) => state.cb(widths.map((width) => ({ contentRect: { width } })));
@@ -81,11 +102,22 @@ function makeMountMock(mode, root) {
   const handlers = [];
   let toggleCalls = 0;
   return {
-    async mount() { calls++; return { root, mode }; },
-    onActive(fn) { handlers.push(fn); },
-    async toggle() { toggleCalls++; },
-    get calls() { return calls; },
-    get toggleCalls() { return toggleCalls; },
+    async mount() {
+      calls++;
+      return { root, mode };
+    },
+    onActive(fn) {
+      handlers.push(fn);
+    },
+    async toggle() {
+      toggleCalls++;
+    },
+    get calls() {
+      return calls;
+    },
+    get toggleCalls() {
+      return toggleCalls;
+    },
     handlers,
   };
 }
@@ -101,13 +133,21 @@ function makeSettingsMock({ ready = true, autoApprove = false } = {}) {
         ready: Promise.resolve(ready),
         isReady: () => readyNow,
         autoApprove: () => autoApprove,
-        refresh: () => { refreshCalls++; },
+        refresh: () => {
+          refreshCalls++;
+        },
         current: () => ({ provider: 'anthropic', model: 'claude-opus-5' }),
       };
     },
-    get refreshCalls() { return refreshCalls; },
-    get lastOnChange() { return lastOnChange; },
-    setReady(value) { readyNow = value; },
+    get refreshCalls() {
+      return refreshCalls;
+    },
+    get lastOnChange() {
+      return lastOnChange;
+    },
+    setReady(value) {
+      readyNow = value;
+    },
   };
 }
 
@@ -119,7 +159,9 @@ function makeBridgeMock(capsValue) {
   const listeners = {};
   return {
     probeWhenReady: async () => capsValue,
-    on(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+    on(type, fn) {
+      (listeners[type] = listeners[type] || []).push(fn);
+    },
     pushChart: (report) => (listeners['chart-changed'] || []).forEach((fn) => fn(report)),
     listenerCount: (type) => (listeners[type] || []).length,
   };
@@ -136,9 +178,15 @@ function makeRuntimeMock() {
       this.resetCalls = 0;
       instances.push(this);
     }
-    send(t) { this.sendCalls.push(t); }
-    cancel() { this.cancelCalls++; }
-    reset() { this.resetCalls++; }
+    send(t) {
+      this.sendCalls.push(t);
+    }
+    cancel() {
+      this.cancelCalls++;
+    }
+    reset() {
+      this.resetCalls++;
+    }
   }
   return { Agent, instances };
 }
@@ -202,7 +250,15 @@ async function bootedPanel(overrides = {}) {
 
   const q = (sel) => root.querySelector(sel);
   return {
-    win, doc, chrome, ro, root, mount, settings, bridge, runtime,
+    win,
+    doc,
+    chrome,
+    ro,
+    root,
+    mount,
+    settings,
+    bridge,
+    runtime,
     resize: ro.resize,
     ctxChipEl: q('#tva-in-context'),
     ctxLabelEl: q('#tva-in-context-label'),
@@ -230,7 +286,10 @@ section('boot: mount before build');
   const root = makeElementRoot();
   let mountCalls = 0;
   const mount = {
-    async mount() { mountCalls++; return mountPromise; },
+    async mount() {
+      mountCalls++;
+      return mountPromise;
+    },
     onActive() {},
     async toggle() {},
   };
@@ -245,7 +304,11 @@ section('boot: mount before build');
 
   resolveMount({ root, mode: 'overlay' });
   await flush();
-  check('once mount() resolves, build() has run and the header is there', root.children.length > 0, true);
+  check(
+    'once mount() resolves, build() has run and the header is there',
+    root.children.length > 0,
+    true,
+  );
   check('the header went in as a header', root.querySelector('.tva-header') !== null, true);
 }
 
@@ -256,18 +319,30 @@ section('boot: settings.ready decides whether the settings screen opens');
   check(
     'ready=false: the settings screen is open',
     h.settingsEl.classList.contains('tva-hidden'),
-    false
+    false,
   );
   check('ready=false: the list is hidden', h.listEl.classList.contains('tva-hidden'), true);
   check('ready=false: the composer is hidden', h.composerEl.classList.contains('tva-hidden'), true);
-  check('ready=false: the empty state is hidden — we are in settings', h.emptyEl.classList.contains('tva-hidden'), true);
+  check(
+    'ready=false: the empty state is hidden — we are in settings',
+    h.emptyEl.classList.contains('tva-hidden'),
+    true,
+  );
 }
 
 {
   const h = await bootedPanel({ settingsOpts: { ready: true } });
-  check('ready=true: the settings screen stays closed', h.settingsEl.classList.contains('tva-hidden'), true);
+  check(
+    'ready=true: the settings screen stays closed',
+    h.settingsEl.classList.contains('tva-hidden'),
+    true,
+  );
   check('ready=true: the list is visible', h.listEl.classList.contains('tva-hidden'), false);
-  check('ready=true: the composer is visible', h.composerEl.classList.contains('tva-hidden'), false);
+  check(
+    'ready=true: the composer is visible',
+    h.composerEl.classList.contains('tva-hidden'),
+    false,
+  );
 }
 
 section('boot: a failed probe shows an error and creates no Agent');
@@ -282,7 +357,7 @@ section('boot: a failed probe shows an error and creates no Agent');
   check(
     'the message names the TradingView API and /chart/',
     errCall.textContent.includes('Could not reach the TradingView API'),
-    true
+    true,
   );
 }
 
@@ -296,7 +371,11 @@ section('boot: a successful probe creates an Agent');
 
 {
   const h = await bootedPanel({ caps: caps({ loggedIn: false }) });
-  check('an Agent is still created when loggedIn is false — that is a status, not a blocker', h.runtime.instances.length, 1);
+  check(
+    'an Agent is still created when loggedIn is false — that is a status, not a blocker',
+    h.runtime.instances.length,
+    1,
+  );
   check('the status is logged out', h.statusEl.className, 'tva-status warn');
 }
 
@@ -309,7 +388,9 @@ section('boot: each of the four failure points shows an error rather than nothin
   // mount() fails: build() has not run, so the error goes into a standalone
   // banner on documentElement.
   const mount = {
-    async mount() { throw new Error('mount blew up'); },
+    async mount() {
+      throw new Error('mount blew up');
+    },
     onActive() {},
     async toggle() {},
   };
@@ -323,18 +404,18 @@ section('boot: each of the four failure points shows an error rather than nothin
 
   const banner = doc.documentElement.querySelector('#tva-boot-error');
   check('an error banner appeared straight on documentElement', banner !== null, true);
-  check(
-    'the banner names the cause',
-    (banner?.textContent || '').includes('mount blew up'),
-    true
-  );
+  check('the banner names the cause', (banner?.textContent || '').includes('mount blew up'), true);
   check('no Agent — build() never ran', runtime.instances.length, 0);
 }
 
 {
   // probeWhenReady() rejects. bridge.js does not do that today, but boot()
   // must not rely on it.
-  const bridge = { probeWhenReady: async () => { throw new Error('probe rejected'); } };
+  const bridge = {
+    probeWhenReady: async () => {
+      throw new Error('probe rejected');
+    },
+  };
   const h = await bootedPanel({ bridge });
 
   check('the status is err', h.statusEl.className, 'tva-status err');
@@ -344,7 +425,7 @@ section('boot: each of the four failure points shows an error rather than nothin
   check(
     'the message names the cause',
     (errCall?.textContent || '').includes('probe rejected'),
-    true
+    true,
   );
 }
 
@@ -353,11 +434,16 @@ section('context row: the price');
 // The formatting formula is spelled out as panel.js spells it, so the test
 // does not depend on the locale's grouping character.
 function fmtPrice(n, maxDigits) {
-  return new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: maxDigits }).format(n);
+  return new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: maxDigits,
+  }).format(n);
 }
 
 {
-  const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: '240', price: 121480 }) });
+  const h = await bootedPanel({
+    caps: caps({ symbol: 'BTCUSDT', resolution: '240', price: 121480 }),
+  });
   const expected = `BTCUSDT · 4h · ${fmtPrice(121480, 2)}`;
   check('context row: symbol · timeframe · price', h.contextEl.textContent, expected);
 }
@@ -367,24 +453,48 @@ function fmtPrice(n, maxDigits) {
   // bars have loaded. The context row must not draw a spare separator or the
   // word "undefined".
   const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: '240' }) });
-  check('with no price: symbol and timeframe, no dangling separator', h.contextEl.textContent, 'BTCUSDT · 4h');
+  check(
+    'with no price: symbol and timeframe, no dangling separator',
+    h.contextEl.textContent,
+    'BTCUSDT · 4h',
+  );
 }
 
 {
   // An instrument under $1: two decimals would round it to 0.00.
-  const h = await bootedPanel({ caps: caps({ symbol: 'PEPEUSDT', resolution: '60', price: 0.0004567 }) });
+  const h = await bootedPanel({
+    caps: caps({ symbol: 'PEPEUSDT', resolution: '60', price: 0.0004567 }),
+  });
   const expected = `PEPEUSDT · 1h · ${fmtPrice(0.0004567, 6)}`;
-  check('a sub-dollar price is not rounded to 0.00 — six decimals', h.contextEl.textContent, expected);
+  check(
+    'a sub-dollar price is not rounded to 0.00 — six decimals',
+    h.contextEl.textContent,
+    expected,
+  );
   check('the real value is on screen, not 0.00', h.contextEl.textContent.includes('0.00 '), false);
 }
 
 {
   // The chip names what travels in the system prompt: the symbol and the
   // timeframe, not the price.
-  const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSDT', resolution: '240', price: 121480 }) });
-  check('the chip names the symbol and the timeframe only', h.ctxLabelEl.textContent, 'BTCUSDT · 4h in context');
-  check('the price is not in the chip label', h.ctxLabelEl.textContent.includes(fmtPrice(121480, 2)), false);
-  check('but the chip title carries the whole line', h.ctxChipEl.attrs.title, `BTCUSDT · 4h · ${fmtPrice(121480, 2)}`);
+  const h = await bootedPanel({
+    caps: caps({ symbol: 'BTCUSDT', resolution: '240', price: 121480 }),
+  });
+  check(
+    'the chip names the symbol and the timeframe only',
+    h.ctxLabelEl.textContent,
+    'BTCUSDT · 4h in context',
+  );
+  check(
+    'the price is not in the chip label',
+    h.ctxLabelEl.textContent.includes(fmtPrice(121480, 2)),
+    false,
+  );
+  check(
+    'but the chip title carries the whole line',
+    h.ctxChipEl.attrs.title,
+    `BTCUSDT · 4h · ${fmtPrice(121480, 2)}`,
+  );
 }
 
 // ============================================================================
@@ -455,7 +565,11 @@ section('send: disclosure and provider configuration are a hard gate');
   // The settings screen opens at boot; closing it must not let a message
   // through.
   click(h.root.querySelector('#tva-gear'));
-  check('the chat can be reopened before setup is complete', h.settingsEl.classList.contains('tva-hidden'), true);
+  check(
+    'the chat can be reopened before setup is complete',
+    h.settingsEl.classList.contains('tva-hidden'),
+    true,
+  );
 
   h.inputEl.value = 'read my chart';
   fireInput(h.inputEl);
@@ -463,7 +577,11 @@ section('send: disclosure and provider configuration are a hard gate');
 
   check('an unready configuration sends nothing to the model', h.agent.sendCalls, []);
   check('the user message is not added as though a run started', h.listEl.children.length, 0);
-  check('the settings screen reopens at the missing disclosure or permission', h.settingsEl.classList.contains('tva-hidden'), false);
+  check(
+    'the settings screen reopens at the missing disclosure or permission',
+    h.settingsEl.classList.contains('tva-hidden'),
+    false,
+  );
 }
 
 {
@@ -532,7 +650,7 @@ section('run lifecycle: startRun/endRun');
   check(
     'endRun: disabled was recomputed from the current, non-empty input',
     h.sendBtn.disabled,
-    false
+    false,
   );
   check('endRun: the status is connected', h.statusEl.className, 'tva-status ok');
 }
@@ -555,8 +673,16 @@ section('run lifecycle: startRun/endRun');
 
   h.agent.handlers.onError(new Error('boom'));
   check('onError moves the status to err', h.statusEl.className, 'tva-status err');
-  check('onError shows the error text in the chat', h.listEl.querySelector('.tva-msg.error').textContent, 'boom');
-  check('onError also drops the stop class — the run is over', h.sendBtn.classList.contains('stop'), false);
+  check(
+    'onError shows the error text in the chat',
+    h.listEl.querySelector('.tva-msg.error').textContent,
+    'boom',
+  );
+  check(
+    'onError also drops the stop class — the run is over',
+    h.sendBtn.classList.contains('stop'),
+    false,
+  );
 }
 
 section('run lifecycle: the Stop button cancels rather than sends');
@@ -586,7 +712,9 @@ section('suggestions: a click sends straight away rather than filling the box');
   check('the input is empty before the click', h.inputEl.value, '');
   click(card);
 
-  check('clicking a suggestion sends its text straight away', h.agent.sendCalls, ['What am I looking at?']);
+  check('clicking a suggestion sends its text straight away', h.agent.sendCalls, [
+    'What am I looking at?',
+  ]);
   check('the input is NOT filled with it — deliberate, not a filled field', h.inputEl.value, '');
 }
 
@@ -600,7 +728,11 @@ section('screens: showScreen(settings) hides the list and the composer');
   check('settings is open', h.settingsEl.classList.contains('tva-hidden'), false);
   check('the list is hidden', h.listEl.classList.contains('tva-hidden'), true);
   check('the composer is hidden', h.composerEl.classList.contains('tva-hidden'), true);
-  check('the empty state is hidden — we are in settings', h.emptyEl.classList.contains('tva-hidden'), true);
+  check(
+    'the empty state is hidden — we are in settings',
+    h.emptyEl.classList.contains('tva-hidden'),
+    true,
+  );
   check('settings.refresh() was called on opening', h.settings.refreshCalls, 1);
 }
 
@@ -620,7 +752,11 @@ section('screens: the empty state shows only when the list is empty and we are n
 
 {
   const h = await bootedPanel();
-  check('the list starts empty, so the empty state shows', h.emptyEl.classList.contains('tva-hidden'), false);
+  check(
+    'the list starts empty, so the empty state shows',
+    h.emptyEl.classList.contains('tva-hidden'),
+    false,
+  );
 }
 
 section('screens: submit() — the first message hides the empty state at once');
@@ -636,7 +772,7 @@ section('screens: submit() — the first message hides the empty state at once')
   check(
     'the first message hides the empty state at once',
     h.emptyEl.classList.contains('tva-hidden'),
-    true
+    true,
   );
 
   h.inputEl.value = 'second message';
@@ -667,13 +803,19 @@ section('New chat resets the agent, clears the list, and the empty state returns
 section('narrow panel: the class comes from the panel’s own width');
 
 {
-  const h = await bootedPanel({ caps: caps({ symbol: 'BINGX:BTCUSDT.P', resolution: '240', price: 64446.7 }) });
+  const h = await bootedPanel({
+    caps: caps({ symbol: 'BINGX:BTCUSDT.P', resolution: '240', price: 64446.7 }),
+  });
 
   // Compared by reference, not by JSON: the fake DOM's nodes point back at
   // their parent and serialising one would cycle.
   check('the ResizeObserver watches exactly one node', h.ro.observed.length, 1);
   check('and it is the panel root', h.ro.observed[0] === h.root, true);
-  check('before the first measurement the panel counts as wide', h.root.classList.contains('tva-narrow'), false);
+  check(
+    'before the first measurement the panel counts as wide',
+    h.root.classList.contains('tva-narrow'),
+    false,
+  );
 
   h.resize(280);
   check('280px is narrow', h.root.classList.contains('tva-narrow'), true);
@@ -693,55 +835,103 @@ section('narrow panel: the class comes from the panel’s own width');
 
   // A real ResizeObserver delivers a batch of entries; the last one is current.
   h.resize(400, 260);
-  check('the last entry in the batch wins, not the first', h.root.classList.contains('tva-narrow'), true);
+  check(
+    'the last entry in the batch wins, not the first',
+    h.root.classList.contains('tva-narrow'),
+    true,
+  );
 }
 
 // ============================================================================
 section('narrow panel: the status and the context chip');
 
 {
-  const h = await bootedPanel({ caps: caps({ symbol: 'BINGX:BTCUSDT.P', resolution: '240', price: 64446.7 }) });
+  const h = await bootedPanel({
+    caps: caps({ symbol: 'BINGX:BTCUSDT.P', resolution: '240', price: 64446.7 }),
+  });
   const full = `BINGX:BTCUSDT.P · 4h · ${fmtPrice(64446.7, 2)}`;
 
   // CSS hides the word when narrow; the text stays in the DOM and in the
   // title.
-  check('the status word stays in the DOM', h.statusEl.querySelector('span').textContent, 'connected');
+  check(
+    'the status word stays in the DOM',
+    h.statusEl.querySelector('span').textContent,
+    'connected',
+  );
   check('the status carries a title, which is what CSS hides', h.statusEl.attrs.title, 'connected');
 
   check('the context row has the whole line as its title', h.contextEl.attrs.title, full);
-  check('wide: the chip shows symbol and timeframe', h.ctxLabelEl.textContent, 'BINGX:BTCUSDT.P · 4h in context');
+  check(
+    'wide: the chip shows symbol and timeframe',
+    h.ctxLabelEl.textContent,
+    'BINGX:BTCUSDT.P · 4h in context',
+  );
 
   h.resize(260);
-  check('narrow: the chip shows the ticker only, no exchange', h.ctxLabelEl.textContent, 'BTCUSDT.P');
+  check(
+    'narrow: the chip shows the ticker only, no exchange',
+    h.ctxLabelEl.textContent,
+    'BTCUSDT.P',
+  );
   check('the chip title is still the whole line', h.ctxChipEl.attrs.title, full);
 
   h.resize(400);
-  check('back at wide: symbol and timeframe again', h.ctxLabelEl.textContent, 'BINGX:BTCUSDT.P · 4h in context');
+  check(
+    'back at wide: symbol and timeframe again',
+    h.ctxLabelEl.textContent,
+    'BINGX:BTCUSDT.P · 4h in context',
+  );
 }
 
 {
   const h = await bootedPanel({ caps: caps({ symbol: '', resolution: '' }) });
-  check('with no symbol the context chip is hidden entirely', h.ctxChipEl.classList.contains('tva-hidden'), true);
+  check(
+    'with no symbol the context chip is hidden entirely',
+    h.ctxChipEl.classList.contains('tva-hidden'),
+    true,
+  );
 }
 
 // ============================================================================
 section('the context popover');
 
 {
-  const h = await bootedPanel({ caps: caps({ symbol: 'BINGX:BTCUSDT.P', resolution: '240', price: 64446.7 }) });
+  const h = await bootedPanel({
+    caps: caps({ symbol: 'BINGX:BTCUSDT.P', resolution: '240', price: 64446.7 }),
+  });
 
-  check('the symbol row is filled in', h.root.querySelector('#tva-ctx-symbol').textContent, 'BINGX:BTCUSDT.P');
-  check('the timeframe row is filled in for a reader', h.root.querySelector('#tva-ctx-resolution').textContent, '4h');
-  check('the price row is formatted as in the row above', h.root.querySelector('#tva-ctx-price').textContent, fmtPrice(64446.7, 2));
+  check(
+    'the symbol row is filled in',
+    h.root.querySelector('#tva-ctx-symbol').textContent,
+    'BINGX:BTCUSDT.P',
+  );
+  check(
+    'the timeframe row is filled in for a reader',
+    h.root.querySelector('#tva-ctx-resolution').textContent,
+    '4h',
+  );
+  check(
+    'the price row is formatted as in the row above',
+    h.root.querySelector('#tva-ctx-price').textContent,
+    fmtPrice(64446.7, 2),
+  );
 
   // When wide the whole line is already visible — there is nothing to open.
   click(h.ctxChipEl);
-  check('when wide, clicking the chip opens nothing', h.ctxPopEl.classList.contains('tva-hidden'), true);
+  check(
+    'when wide, clicking the chip opens nothing',
+    h.ctxPopEl.classList.contains('tva-hidden'),
+    true,
+  );
   check('and binds no document listeners', h.doc.listenerCount('click'), 0);
 
   h.resize(260);
   click(h.ctxChipEl);
-  check('when narrow, a click opens the popover', h.ctxPopEl.classList.contains('tva-hidden'), false);
+  check(
+    'when narrow, a click opens the popover',
+    h.ctxPopEl.classList.contains('tva-hidden'),
+    false,
+  );
   check('aria-expanded=true', h.ctxChipEl.attrs['aria-expanded'], 'true');
 
   click(h.ctxChipEl);
@@ -758,20 +948,34 @@ section('the context popover');
   // A click inside the popover must not close it: people select the text in
   // there.
   h.doc.fire('click', { target: h.root.querySelector('#tva-ctx-symbol') });
-  check('a click inside the popover does not close it', h.ctxPopEl.classList.contains('tva-hidden'), false);
+  check(
+    'a click inside the popover does not close it',
+    h.ctxPopEl.classList.contains('tva-hidden'),
+    false,
+  );
 
   h.doc.fire('click', { target: h.ctxLabelEl });
-  check('a click on the chip label does not close it either', h.ctxPopEl.classList.contains('tva-hidden'), false);
+  check(
+    'a click on the chip label does not close it either',
+    h.ctxPopEl.classList.contains('tva-hidden'),
+    false,
+  );
 
   h.doc.fire('click', { target: h.listEl });
   check('a click outside closes it', h.ctxPopEl.classList.contains('tva-hidden'), true);
-  check('and removes both document listeners', [h.doc.listenerCount('click'), h.doc.listenerCount('keydown')], [0, 0]);
+  check(
+    'and removes both document listeners',
+    [h.doc.listenerCount('click'), h.doc.listenerCount('keydown')],
+    [0, 0],
+  );
 }
 
 section('the chart changes under the panel');
 
 {
-  const h = await bootedPanel({ caps: caps({ symbol: 'BTCUSD', resolution: '60', series: false }) });
+  const h = await bootedPanel({
+    caps: caps({ symbol: 'BTCUSD', resolution: '60', series: false }),
+  });
   check('the panel subscribed to the driver’s pushes', h.bridge.listenerCount('chart-changed'), 1);
   check('the agent starts on the boot report', h.agent.capabilities.symbol, 'BTCUSD');
 
@@ -791,13 +995,21 @@ section('the chart changes under the panel');
   const h = await bootedPanel({
     caps: caps({ symbol: 'BTCUSD', resolution: '60', series: true, price: 65000 }),
   });
-  check('the boot price is on the row', h.contextEl.textContent, `BTCUSD · 1h · ${fmtPrice(65000, 2)}`);
+  check(
+    'the boot price is on the row',
+    h.contextEl.textContent,
+    `BTCUSD · 1h · ${fmtPrice(65000, 2)}`,
+  );
 
   h.bridge.pushChart(caps({ symbol: 'NASDAQ:AAPL', resolution: 'D', series: false }));
 
   check('the new symbol is shown', h.agent.capabilities.symbol, 'NASDAQ:AAPL');
   check('the old price did not come with it', h.agent.capabilities.price, undefined);
-  check('and the row shows no price rather than the wrong one', h.contextEl.textContent, 'NASDAQ:AAPL · 1D');
+  check(
+    'and the row shows no price rather than the wrong one',
+    h.contextEl.textContent,
+    'NASDAQ:AAPL · 1D',
+  );
 }
 
 section('the model chip');
@@ -806,13 +1018,25 @@ section('the model chip');
   const h = await bootedPanel();
   // The label comes from the shared catalog.
   h.settings.lastOnChange({ provider: 'anthropic', model: 'claude-haiku-4-5' });
-  check('a catalog model gets its brand name', h.root.querySelector('#tva-model-chip').textContent, 'Claude Haiku');
+  check(
+    'a catalog model gets its brand name',
+    h.root.querySelector('#tva-model-chip').textContent,
+    'Claude Haiku',
+  );
 
   h.settings.lastOnChange({ provider: 'openai', model: 'gemma4:26b-a4b-it-qat' });
-  check('another provider’s model is written as typed', h.root.querySelector('#tva-model-chip').textContent, 'gemma4:26b-a4b-it-qat');
+  check(
+    'another provider’s model is written as typed',
+    h.root.querySelector('#tva-model-chip').textContent,
+    'gemma4:26b-a4b-it-qat',
+  );
 
   h.settings.lastOnChange({ provider: 'openai', model: '' });
-  check('and with none chosen it says so', h.root.querySelector('#tva-model-chip').textContent, 'Pick a model');
+  check(
+    'and with none chosen it says so',
+    h.root.querySelector('#tva-model-chip').textContent,
+    'Pick a model',
+  );
 }
 
 report();
