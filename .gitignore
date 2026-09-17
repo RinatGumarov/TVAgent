@@ -1,5 +1,6 @@
 node_modules/
 .DS_Store
+build/
 dist/
 
 # Internal research and planning notes are not part of the public repository.
