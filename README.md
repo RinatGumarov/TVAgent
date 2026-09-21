@@ -33,17 +33,20 @@ Chrome 111 or newer is required. Building needs Node 22.18 or newer.
 2. Open the panel. On a logged-in chart it is a tab marked **AI** in the
    right-hand widget bar. Without a widget bar, the extension's toolbar button
    opens it as an overlay.
-3. Read the data disclosure in the settings screen and accept it.
+3. Read the data disclosure the panel opens with and agree to it.
 4. Choose a provider:
-   - **Anthropic**: paste an [API key](https://console.anthropic.com/settings/keys)
-     and pick a model.
+   - **Anthropic**: pick a model, then press **Manage key** and save an
+     [API key](https://console.anthropic.com/settings/keys) on the extension's
+     options page. Keys are never typed on the TradingView page.
    - **OpenAI-compatible**: enter the base URL and a model name. Local servers
      such as Ollama or LM Studio work over HTTP on `localhost`. Hosted
      providers must use HTTPS, and Chrome asks you to allow that exact host
-     before anything is sent to it.
+     before anything is sent to it. A key, if the provider needs one, goes on
+     the same options page.
 5. Type a request, or click one of the suggestions.
 
-The chat shows every tool call the model makes and what came back. Reading the
+Every tool call the model makes is a row in the chat; click one to see its
+input and what came back. Reading the
 chart and changing indicators or drawings happen without asking. Writing Pine
 code and adding it to the chart ask for confirmation first; the "Run Pine
 edits without asking" switch in settings turns that off.
@@ -56,9 +59,9 @@ are not predictions.
 | Setting                       |                                                                                               |
 | ----------------------------- | --------------------------------------------------------------------------------------------- |
 | Provider                      | Anthropic, or any OpenAI-compatible endpoint                                                  |
-| API key                       | Kept in the extension's local storage and sent only to the selected provider                  |
+| API key                       | Entered on the extension's options page, kept in local storage, sent only to its provider     |
 | Model                         | Claude Opus 5, Sonnet 5 or Haiku 4.5; for other providers, the list is loaded from the server |
-| Effort                        | Reasoning effort for Claude models                                                            |
+| Effort                        | Reasoning effort. For other providers: Auto, Off (fastest), Low, Medium, High                 |
 | Run Pine edits without asking | Skips the confirmation for the Pine tools                                                     |
 
 ### What the model can do

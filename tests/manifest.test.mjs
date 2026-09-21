@@ -34,6 +34,12 @@ describe('the two worlds get their own bundle', () => {
   });
 });
 
+describe('API keys are typed on an extension page', () => {
+  it('the options page opens in its own tab, outside any TradingView document', () => {
+    assert.deepStrictEqual(manifest.options_ui, { page: 'options.html', open_in_tab: true });
+  });
+});
+
 describe('store permissions stay narrow', () => {
   it('the declared Chrome floor matches MAIN-world content scripts', () => {
     assert.deepStrictEqual(manifest.minimum_chrome_version, '111');

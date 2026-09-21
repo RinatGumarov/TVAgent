@@ -21,8 +21,8 @@ is synced to a Google account or transmitted to the developer.
 Conversations are not written to disk. They live in the panel for the current
 tab and are gone when you close or reload it.
 
-Before TVAgent sends a message, its settings screen names the data that will go
-to the selected model provider and requires affirmative consent. The extension
+Before TVAgent sends a message, the panel names the data that will go to the
+selected model provider and requires affirmative consent. The extension
 will not start a model run until that disclosure is accepted, the provider is
 configured, and any optional provider host permission has been granted.
 
@@ -49,9 +49,9 @@ it to work on) to that provider's API:
 It sends TradingView nothing extra and does not transmit your API key, your
 prompts, or your conversation to TradingView.
 
-The API key stays in extension storage, is displayed only in the isolated
-content script's closed-shadow settings field, and is attached to provider
-requests by the background service worker. It is never exposed to the
+The API key is entered on the extension's own options page, stays in extension
+storage, and is attached to provider requests by the background service
+worker. It is never exposed to the
 TradingView page, and never sent anywhere except the provider endpoint you
 configured.
 
@@ -97,7 +97,8 @@ permission for background network access.
 ## Deleting your data
 
 Removing the extension from `chrome://extensions` deletes everything it stored.
-To clear only the API key, open the panel's ⚙ settings and empty the key field.
+To clear only the API key, open the extension's options page and press Remove.
+The consent can be taken back with Revoke at the bottom of the panel's ⚙ settings.
 
 ## Changes
 

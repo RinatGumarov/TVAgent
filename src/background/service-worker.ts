@@ -20,6 +20,7 @@ import type { StoredCredentials } from '../shared/credentials.ts';
 interface StoredProfile extends StoredCredentials {
   baseUrl?: string;
   effort?: string;
+  openaiEffort?: string;
   dataDisclosureAccepted?: boolean;
 }
 
@@ -75,6 +76,7 @@ export async function settings(): Promise<ProviderConfig> {
     'baseUrl',
     'openaiApiKey',
     'openaiModel',
+    'openaiEffort',
     'dataDisclosureAccepted',
   ]);
   const provider = s.provider || DEFAULTS.provider;
@@ -98,7 +100,12 @@ export async function settings(): Promise<ProviderConfig> {
   } catch (err) {
     common.baseUrlError = (err as Error).message || String(err);
   }
-  return { ...common, apiKey: slots.openaiApiKey, model: slots.openaiModel };
+  return {
+    ...common,
+    effort: s.openaiEffort || 'auto',
+    apiKey: slots.openaiApiKey,
+    model: slots.openaiModel,
+  };
 }
 
 /** What has to be in place before a turn can go out, in the user's terms. */
@@ -106,7 +113,7 @@ export function configError(cfg: ProviderConfig, { requireModel = true } = {}) {
   if (cfg.provider === 'anthropic') {
     return cfg.apiKey
       ? null
-      : 'No API key set. Open the panel settings and add your Anthropic API key.';
+      : 'No API key set. Open the extension options and add your Anthropic API key.';
   }
   // Local providers authenticate with nothing at all, so a key is never
   // required here — but nothing can be called without a model and a URL.
@@ -157,6 +164,30 @@ async function providerPermission(baseUrl: string, action: string) {
   throw new Error('Unknown provider-permission action.');
 }
 
+/**
+ * Moves a profile off the old shared key/model slot, then says which
+ * providers have a key. The panel asks this instead of reading a key itself.
+ */
+export async function keyStatus() {
+  const stored: StoredCredentials = await chrome.storage.local.get([
+    'provider',
+    'apiKey',
+    'model',
+    'openaiApiKey',
+    'openaiModel',
+  ]);
+  const slots = TVAgentCredentials.split(stored);
+  if (slots.changed) {
+    await chrome.storage.local.set({
+      apiKey: slots.apiKey,
+      model: slots.model,
+      openaiApiKey: slots.openaiApiKey,
+      openaiModel: slots.openaiModel,
+    });
+  }
+  return { anthropic: !!slots.apiKey, openai: !!slots.openaiApiKey };
+}
+
 /** Wires the worker to Chrome. The entry calls this once. */
 export function registerWorker() {
   chrome.action.onClicked.addListener((tab) => {
@@ -172,6 +203,16 @@ export function registerWorker() {
           sendResponse({ error: (err as Error).message || String(err) });
         }
       })();
+      return true;
+    }
+    if (msg?.type === 'open-options') {
+      chrome.runtime.openOptionsPage();
+      return undefined;
+    }
+    if (msg?.type === 'key-status') {
+      keyStatus().then(sendResponse, (err) =>
+        sendResponse({ error: (err as Error).message || String(err) }),
+      );
       return true;
     }
     if (msg?.type !== 'list-models') return undefined;
@@ -541,6 +582,12 @@ function toOpenAITools(tools: ToolForApi[]) {
   }));
 }
 
+/** The `reasoning_effort` to send, or null when the provider should decide. */
+export function reasoningEffort(effort: string): string | null {
+  if (effort === 'off') return 'none';
+  return ['low', 'medium', 'high'].includes(effort) ? effort : null;
+}
+
 const STOP_REASONS: Record<string, string> = {
   tool_calls: 'tool_use',
   stop: 'end_turn',
@@ -557,29 +604,47 @@ async function streamOpenAI(
   // Ollama ignores auth entirely; hosted providers need the bearer token.
   if (cfg.apiKey) headers.authorization = `Bearer ${cfg.apiKey}`;
 
-  let response: Response;
-  try {
-    response = await fetch(`${cfg.baseUrl}/chat/completions`, {
-      method: 'POST',
-      signal,
-      headers,
-      body: JSON.stringify({
-        model: cfg.model,
-        max_tokens: cfg.maxTokens,
-        stream: true,
-        messages: toOpenAIMessages(req.system, req.messages),
-        tools: toOpenAITools(req.tools),
-      }),
+  const body: Record<string, unknown> = {
+    model: cfg.model,
+    max_tokens: cfg.maxTokens,
+    stream: true,
+    messages: toOpenAIMessages(req.system, req.messages),
+    tools: toOpenAITools(req.tools),
+  };
+  const effort = reasoningEffort(cfg.effort);
+  if (effort) body.reasoning_effort = effort;
+
+  const send = async () => {
+    try {
+      return await fetch(`${cfg.baseUrl}/chat/completions`, {
+        method: 'POST',
+        signal,
+        headers,
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') throw err;
+      // A dead server and a revoked optional host both surface as a
+      // bare "Failed to fetch", which tells the user nothing.
+      throw new Error(
+        `Could not reach ${cfg.baseUrl} — ${(err as Error).message}. Check that the provider is running, ` +
+          'and grant its exact host from panel settings.',
+        { cause: err },
+      );
+    }
+  };
+
+  let response = await send();
+  if (response.status === 400 && body.reasoning_effort) {
+    const problem = await httpError(response, 'Provider');
+    if (!/reasoning|effort|think/i.test(problem.message)) throw problem;
+    // Not every model reasons; the turn still goes out, at the model's own pace.
+    delete body.reasoning_effort;
+    port.postMessage({
+      type: 'notice',
+      text: `${cfg.model} does not accept a reasoning effort, so it was left out.`,
     });
-  } catch (err) {
-    if ((err as Error).name === 'AbortError') throw err;
-    // A dead server and a revoked optional host both surface as a
-    // bare "Failed to fetch", which tells the user nothing.
-    throw new Error(
-      `Could not reach ${cfg.baseUrl} — ${(err as Error).message}. Check that the provider is running, ` +
-        'and grant its exact host from panel settings.',
-      { cause: err },
-    );
+    response = await send();
   }
 
   if (!response.ok) throw await httpError(response, 'Provider');

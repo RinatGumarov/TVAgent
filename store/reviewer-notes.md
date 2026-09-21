@@ -5,12 +5,13 @@
 1. Install the submitted ZIP in Chrome 111 or newer.
 2. Open `https://www.tradingview.com/chart/`.
 3. Open TVAgent from the TradingView widget bar or the extension toolbar action.
-4. Read the data disclosure and check the affirmative-consent box.
-5. Select Anthropic and enter a temporary review API key, or select an
+4. Read the data disclosure and press Agree and continue.
+5. Select Anthropic, press Manage key and save a temporary review API key on
+   the options page that opens, or select an
    OpenAI-compatible endpoint and grant its exact host when Chrome prompts.
 6. Send `What am I looking at?` to exercise read-only chart context.
 7. Send `Add EMA 50` to exercise a fixed chart-changing tool.
-8. Open Settings and clear the API key after testing.
+8. Open the options page and press Remove to clear the API key after testing.
 
 Anonymous TradingView sessions can exercise chart context but may not expose all
 drawing or Pine APIs. A logged-in test account is needed for those host features.

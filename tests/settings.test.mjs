@@ -17,6 +17,7 @@ const chromeStub = (data) => ({
     local: {
       get: async (keys) =>
         Object.fromEntries(keys.filter((k) => data[k] !== undefined).map((k) => [k, data[k]])),
+      set: async (obj) => Object.assign(data, obj),
     },
   },
 });
@@ -181,5 +182,31 @@ describe('reasoning fields per model', () => {
   it('an unknown model gets neither', async () => {
     const unknown = await bodyFor('some-model-we-have-never-heard-of');
     assert.deepStrictEqual(['thinking' in unknown, 'output_config' in unknown], [false, false]);
+  });
+});
+
+describe('key status, and the move off the shared slot', () => {
+  it('reports which providers have a key, and never the key', async () => {
+    const { keyStatus } = load({ provider: 'anthropic', apiKey: 'sk-ant-real' });
+    assert.deepStrictEqual(await keyStatus(), { anthropic: true, openai: false });
+  });
+
+  it('under openai, an sk-ant key and a claude model stay on the Anthropic side', async () => {
+    const data = { provider: 'openai', apiKey: 'sk-ant-real', model: 'claude-opus-5' };
+    await load(data).keyStatus();
+    assert.deepStrictEqual(
+      [data.apiKey, data.model, data.openaiApiKey, data.openaiModel],
+      ['sk-ant-real', 'claude-opus-5', '', ''],
+    );
+  });
+
+  it('under openai, anything else moves to the OpenAI slots', async () => {
+    const data = { provider: 'openai', apiKey: 'ollama-ignores-this', model: 'gemma4:26b' };
+    const status = await load(data).keyStatus();
+    assert.deepStrictEqual(
+      [data.apiKey, data.model, data.openaiApiKey, data.openaiModel],
+      ['', '', 'ollama-ignores-this', 'gemma4:26b'],
+    );
+    assert.deepStrictEqual(status, { anthropic: false, openai: true });
   });
 });

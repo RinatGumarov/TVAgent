@@ -14,6 +14,7 @@ function makeChrome() {
     runtime: {
       onMessage: { addListener: (fn) => messageListeners.push(fn) },
     },
+    storage: { local: { set: async () => {} } },
     _fireMessage(msg) {
       messageListeners.slice().forEach((fn) => fn(msg));
     },
@@ -121,16 +122,21 @@ function makeMountMock(mode, root) {
   };
 }
 
-function makeSettingsMock({ ready = true, autoApprove = false } = {}) {
+function makeSettingsMock({ ready = true, autoApprove = false, accepted = true } = {}) {
   let refreshCalls = 0;
   let lastOnChange = null;
   let readyNow = ready;
+  let acceptedNow = accepted;
   return {
     create(hostEl, opts) {
       lastOnChange = opts.onChange;
       return {
         ready: Promise.resolve(ready),
-        isReady: () => readyNow,
+        isReady: () => readyNow && acceptedNow,
+        accepted: () => acceptedNow,
+        setAccepted(value) {
+          acceptedNow = value;
+        },
         autoApprove: () => autoApprove,
         refresh: () => {
           refreshCalls++;
@@ -1416,4 +1422,28 @@ describe('the model chip', async () => {
       assert.deepStrictEqual(got129, want129);
     });
   }
+});
+
+describe('the data-use screen stands in for the panel until it is agreed to', async () => {
+  const h = await bootedPanel({ settingsOpts: { accepted: false } });
+  const consentEl = h.root.querySelector('#tva-consent');
+  const hidden = (el) => el.classList.contains('tva-hidden');
+
+  const atBoot = [hidden(consentEl), hidden(h.settingsEl), hidden(h.composerEl)];
+  it('it is the only screen at boot', () => {
+    assert.deepStrictEqual(atBoot, [false, true, true]);
+  });
+
+  click(h.root.querySelector('#tva-gear'));
+  const afterGear = [hidden(consentEl), hidden(h.settingsEl)];
+  it('and the gear does not get past it', () => {
+    assert.deepStrictEqual(afterGear, [false, true]);
+  });
+
+  click(consentEl.querySelector('#tva-disclosure-agree'));
+  await flush();
+  const afterAgree = [hidden(consentEl), hidden(h.composerEl)];
+  it('agreeing opens the chat', () => {
+    assert.deepStrictEqual(afterAgree, [true, false]);
+  });
 });

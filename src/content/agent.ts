@@ -46,6 +46,7 @@ export interface AgentHandlers {
   onError?: (err: Error) => void;
   onText?: (delta: string) => void;
   onThinking?: (delta: string) => void;
+  onNotice?: (text: string) => void;
   onBlockStart?: (blockType: string) => void;
   onToolStart?: (info: {
     id: string;
@@ -273,6 +274,9 @@ class Agent {
             break;
           case 'block_start':
             this.handlers.onBlockStart?.(msg.blockType);
+            break;
+          case 'notice':
+            this.handlers.onNotice?.(msg.text);
             break;
           case 'done':
             settle(() => resolve(msg.message));

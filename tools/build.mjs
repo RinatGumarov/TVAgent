@@ -12,6 +12,7 @@ const ENTRIES = {
   'bridge.js': 'src/entries/bridge.ts',
   'panel.js': 'src/entries/panel.ts',
   'service-worker.js': 'src/entries/worker.ts',
+  'options.js': 'src/entries/options.ts',
 };
 
 await fs.rm(out, { recursive: true, force: true });

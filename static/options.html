@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TVAgent — API keys</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main>
+      <h1>TVAgent</h1>
+      <p class="lead">
+        API keys are stored in this browser profile and sent only to the provider they belong to.
+        Everything else is set in the panel on the chart.
+      </p>
+
+      <section>
+        <h2>Anthropic</h2>
+        <p class="status" id="key-anthropic-status"></p>
+        <div class="row">
+          <input
+            type="password"
+            id="key-anthropic"
+            placeholder="sk-ant-..."
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button id="key-anthropic-save" type="button" class="primary">Save</button>
+          <button id="key-anthropic-remove" type="button">Remove</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>OpenAI-compatible provider</h2>
+        <p class="status" id="key-openai-status"></p>
+        <div class="row">
+          <input
+            type="password"
+            id="key-openai"
+            placeholder="leave empty for Ollama"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button id="key-openai-save" type="button" class="primary">Save</button>
+          <button id="key-openai-remove" type="button">Remove</button>
+        </div>
+        <p class="hint">
+          Sent as a bearer token to the base URL set in the panel. A local provider needs none.
+        </p>
+      </section>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

@@ -15,7 +15,7 @@ const json = (body, status = 200) => ({
   text: async () => JSON.stringify(body),
 });
 
-function loadWorker(data, { granted = [], grantRequests = true } = {}) {
+function loadWorker(data, { granted = [], grantRequests = true, respond } = {}) {
   let messageListener = null;
   let connectListener = null;
   const permissionCalls = [];
@@ -60,7 +60,7 @@ function loadWorker(data, { granted = [], grantRequests = true } = {}) {
   };
   const fetchStub = async (url, options = {}) => {
     fetchCalls.push({ url, options });
-    return json({ data: [] });
+    return respond ? respond(fetchCalls.length) : json({ data: [] });
   };
 
   loadModule('background/service-worker.js', {
@@ -167,5 +167,54 @@ describe('network privacy gate', () => {
       worker.fetchCalls[0]?.options?.headers?.authorization,
       'Bearer gsk-secret',
     );
+  });
+});
+
+describe('reasoning effort on an OpenAI-compatible provider', () => {
+  const configured = {
+    provider: 'openai',
+    baseUrl: 'http://localhost:11434/v1',
+    openaiModel: 'model-a',
+    dataDisclosureAccepted: true,
+  };
+  const granted = ['http://localhost/*'];
+  const turn = { type: 'run', system: 's', messages: [], tools: [] };
+  const sent = (worker) =>
+    worker.fetchCalls.map((c) => JSON.parse(c.options.body).reasoning_effort);
+
+  it('auto sends no field, off sends none, and a level goes out as it is', async () => {
+    for (const [stored, expected] of [
+      [undefined, undefined],
+      ['off', 'none'],
+      ['low', 'low'],
+    ]) {
+      const worker = loadWorker({ ...configured, openaiEffort: stored }, { granted });
+      await worker.run(turn);
+      assert.deepStrictEqual(sent(worker), [expected]);
+    }
+  });
+
+  it('the Anthropic effort is not carried over to the other provider', async () => {
+    const worker = loadWorker({ ...configured, effort: 'xhigh' }, { granted });
+    await worker.run(turn);
+    assert.deepStrictEqual(sent(worker), [undefined]);
+  });
+
+  it('a model that rejects the field is asked again without it', async () => {
+    const respond = (n) =>
+      n === 1 ? json({ error: { message: 'model-a does not support thinking' } }, 400) : json({});
+    const worker = loadWorker({ ...configured, openaiEffort: 'high' }, { granted, respond });
+    const posts = await worker.run(turn);
+    assert.deepStrictEqual(sent(worker), ['high', undefined]);
+    assert.ok(posts.some((p) => p.type === 'notice' && /model-a/.test(p.text)));
+    assert.ok(posts.some((p) => p.type === 'done'));
+  });
+
+  it('any other 400 is reported, not retried', async () => {
+    const respond = () => json({ error: { message: 'context too long' } }, 400);
+    const worker = loadWorker({ ...configured, openaiEffort: 'high' }, { granted, respond });
+    const posts = await worker.run(turn);
+    assert.deepStrictEqual(worker.fetchCalls.length, 1);
+    assert.ok(posts.some((p) => p.type === 'error' && /context too long/.test(p.error)));
   });
 });

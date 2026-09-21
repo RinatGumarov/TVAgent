@@ -8,6 +8,7 @@
 import * as TVAgentChat from './panel-chat.ts';
 import * as TVAgentMount from './panel-mount.ts';
 import * as TVAgentSettings from './panel-settings.ts';
+import * as TVAgentConsent from './panel-consent.ts';
 import * as TVAgentRuntime from './agent.ts';
 import * as TVAgentModels from '../shared/models.ts';
 import type { AgentCapabilities } from './agent.ts';
@@ -35,6 +36,7 @@ let chat: ReturnType<typeof TVAgentChat.create> | null = null;
 let settings: ReturnType<typeof TVAgentSettings.create> | null = null;
 let listEl!: HTMLElement;
 let settingsEl!: HTMLElement;
+let consentEl!: HTMLElement;
 let emptyEl!: HTMLElement;
 let inputEl!: HTMLTextAreaElement;
 let sendBtn!: HTMLButtonElement;
@@ -94,6 +96,7 @@ function build(mountRoot: HTMLElement) {
         </div>
         <div class="tva-list" id="tva-list"></div>
         <div class="tva-settings tva-hidden" id="tva-settings"></div>
+        <div class="tva-consent tva-hidden" id="tva-consent"></div>
       </div>
 
       <footer class="tva-composer">
@@ -120,6 +123,7 @@ function build(mountRoot: HTMLElement) {
 
   listEl = need('#tva-list');
   settingsEl = need('#tva-settings');
+  consentEl = need('#tva-consent');
   emptyEl = need('#tva-empty');
   inputEl = need<HTMLTextAreaElement>('#tva-input');
   sendBtn = need<HTMLButtonElement>('#tva-send');
@@ -174,12 +178,15 @@ function build(mountRoot: HTMLElement) {
 
 // ---------------------------------------------------------------- screens
 
-function showScreen(which: 'chat' | 'settings') {
+function showScreen(asked: 'chat' | 'settings') {
   closeContext();
+  // Nothing else is reachable until the data use has been agreed to.
+  const which = settings && !settings.accepted() ? 'consent' : asked;
+  consentEl.classList.toggle('tva-hidden', which !== 'consent');
   settingsEl.classList.toggle('tva-hidden', which !== 'settings');
-  listEl.classList.toggle('tva-hidden', which === 'settings');
-  emptyEl.classList.toggle('tva-hidden', which === 'settings' || !isEmpty());
-  need('.tva-composer').classList.toggle('tva-hidden', which === 'settings');
+  listEl.classList.toggle('tva-hidden', which !== 'chat');
+  emptyEl.classList.toggle('tva-hidden', which !== 'chat' || !isEmpty());
+  need('.tva-composer').classList.toggle('tva-hidden', which !== 'chat');
 }
 
 function toggleSettings(force?: boolean) {
@@ -393,6 +400,7 @@ function handlers() {
     onBlockStart: chat!.onBlockStart,
     onThinking: chat!.onThinking,
     onText: chat!.onText,
+    onNotice: chat!.notice,
     onToolStart: chat!.onToolStart,
     onToolResult: chat!.onToolResult,
     onConfirm: chat!.onConfirm,
@@ -426,11 +434,20 @@ async function boot() {
         modelChipEl.textContent =
           provider === 'anthropic' ? TVAgentModels.chip(model) : model || 'Pick a model';
       },
+      onRevoke: () => showScreen('chat'),
+    });
+    TVAgentConsent.create(consentEl, {
+      onAgree() {
+        settings!.setAccepted(true);
+        if (settings!.isReady()) showScreen('chat');
+        else toggleSettings(true);
+      },
     });
 
     // The panel is only useful once it has been told what to call.
     const configured = await settings!.ready;
-    if (!configured) toggleSettings(true);
+    if (configured) showScreen('chat');
+    else toggleSettings(true);
   } catch (err) {
     showError('error', 'TVAgent failed to start: ' + ((err as Error)?.message || String(err)));
     return;

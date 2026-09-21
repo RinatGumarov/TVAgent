@@ -15,23 +15,40 @@ function makeChrome(initial = {}, { granted = [], grantRequests = true } = {}) {
   const requestCalls = [];
   const removeCalls = [];
   const origins = new Set(granted);
+  const readKeys = [];
+  const messages = [];
+  const changeListeners = [];
   return {
     store,
     setCalls,
+    readKeys,
+    messages,
+    /** What chrome.storage.onChanged would deliver after a write elsewhere. */
+    fireChanged: (changes) => Promise.all(changeListeners.map((fn) => fn(changes, 'local'))),
     requestCalls,
     removeCalls,
     storage: {
       local: {
-        get: async (keys) =>
-          Object.fromEntries(keys.filter((k) => store[k] !== undefined).map((k) => [k, store[k]])),
+        get: async (keys) => {
+          readKeys.push(...keys);
+          return Object.fromEntries(
+            keys.filter((k) => store[k] !== undefined).map((k) => [k, store[k]]),
+          );
+        },
         set: async (obj) => {
           setCalls.push({ ...obj });
           Object.assign(store, obj);
         },
       },
+      onChanged: { addListener: (fn) => changeListeners.push(fn) },
     },
     runtime: {
       sendMessage: async (msg) => {
+        messages.push(msg);
+        // The worker is the one that reads the key slots.
+        if (msg?.type === 'key-status') {
+          return { anthropic: !!store.apiKey, openai: !!store.openaiApiKey };
+        }
         if (msg?.type !== 'provider-permission') return { models: [] };
         const url = new URL(msg.baseUrl);
         const permission = `${url.protocol}//${url.hostname}/*`;
@@ -73,234 +90,122 @@ const segByName = (hostEl, name) =>
 const btnByValue = (seg, value) =>
   seg.querySelectorAll('button').find((b) => b.dataset.value === value);
 
-/** The input inside a key field — reachable from the test, and nowhere else. */
-const secretInput = (hostEl, id) =>
-  hostEl.querySelector(id)._shadowRootForTests.querySelector('input');
-
 const fireChange = (el) => (el.listeners.change || []).forEach((fn) => fn({ target: el }));
 
 // ========================================================== data disclosure
 
-describe('data disclosure and consent', async () => {
-  {
+describe('data disclosure and consent', () => {
+  function consent(chr) {
+    const doc = makeDocument();
+    const Consent = loadModule('content/panel-consent.js', { document: doc, chrome: chr });
+    const hostEl = doc.createElement('div');
+    let agreed = 0;
+    Consent.create(hostEl, { onAgree: () => agreed++ });
+    return { hostEl, agreed: () => agreed };
+  }
+
+  it('the screen names what is sent, and to whom', () => {
+    const copy = textOf(consent(makeChrome()).hostEl);
+    assert.match(copy, /prompts and conversation/i);
+    assert.match(copy, /chart context/i);
+    assert.match(copy, /OHLCV/);
+    assert.match(copy, /Pine source/i);
+    assert.match(copy, /selected model provider/i);
+    assert.match(copy, /API key is sent only to the selected model provider/i);
+  });
+
+  it('consent is stored only by the button, and then the panel is told', async () => {
+    const chr = makeChrome();
+    const { hostEl, agreed } = consent(chr);
+    assert.deepStrictEqual(chr.setCalls, []);
+    click(hostEl.querySelector('#tva-disclosure-agree'));
+    await new Promise((r) => setTimeout(r, 0));
+    assert.deepStrictEqual(chr.setCalls, [{ dataDisclosureAccepted: true }]);
+    assert.deepStrictEqual(agreed(), 1);
+  });
+
+  it('configuration alone is not ready without consent', async () => {
     const chr = makeChrome({ provider: 'anthropic', apiKey: 'sk-ant-x' });
+    const { Settings, doc } = load(chr);
+    const api = Settings.create(doc.createElement('div'), { onChange: () => {} });
+    assert.deepStrictEqual(await api.ready, false);
+    api.setAccepted(true);
+    assert.deepStrictEqual(api.isReady(), true);
+  });
+
+  it('settings keep one line for it, and Revoke takes the consent back', async () => {
+    const chr = makeChrome({
+      provider: 'anthropic',
+      apiKey: 'sk-ant-x',
+      dataDisclosureAccepted: true,
+    });
+    const { Settings, doc } = load(chr);
+    const hostEl = doc.createElement('div');
+    let revoked = 0;
+    const api = Settings.create(hostEl, { onChange: () => {}, onRevoke: () => revoked++ });
+    await api.ready;
+    assert.deepStrictEqual(hostEl.querySelector('#tva-disclosure'), null);
+
+    click(hostEl.querySelector('#tva-disclosure-revoke'));
+    await new Promise((r) => setTimeout(r, 0));
+    assert.deepStrictEqual(chr.store.dataDisclosureAccepted, false);
+    assert.deepStrictEqual([api.accepted(), api.isReady(), revoked], [false, false, 1]);
+  });
+});
+
+// ================================================================= API keys
+
+describe('API keys stay off the page', () => {
+  const stored = {
+    provider: 'anthropic',
+    apiKey: 'sk-ant-SECRET-abc',
+    openaiApiKey: 'gsk-SECRET-xyz',
+    dataDisclosureAccepted: true,
+  };
+
+  it('the screen has no key field and never reads a key slot', async () => {
+    const chr = makeChrome(stored);
+    const { Settings, doc } = load(chr);
+    const hostEl = doc.createElement('div');
+    await Settings.create(hostEl, { onChange: () => {} }).ready;
+
+    assert.deepStrictEqual(
+      hostEl.querySelectorAll('input').filter((i) => i.attrs.type === 'password'),
+      [],
+    );
+    assert.deepStrictEqual(
+      chr.readKeys.filter((k) => /apikey/i.test(k)),
+      [],
+    );
+    assert.doesNotMatch(textOf(hostEl), /SECRET/);
+  });
+
+  it('it shows whether the active provider has one', async () => {
+    const chr = makeChrome({ ...stored, apiKey: '' });
     const { Settings, doc } = load(chr);
     const hostEl = doc.createElement('div');
     const api = Settings.create(hostEl, { onChange: () => {} });
-    const ready = await api.ready;
+    assert.deepStrictEqual(await api.ready, false);
+    assert.match(hostEl.querySelector('#tva-key-status').textContent, /^Not set/);
 
-    const disclosure = hostEl.querySelector('#tva-disclosure');
-    const copy = disclosure ? textOf(disclosure) : '';
-    const got1 = !!disclosure;
-    const want1 = true;
-    it('the disclosure is visible in the product UI', () => {
-      assert.deepStrictEqual(got1, want1);
-    });
-    const got2 = /prompt|conversation/i.test(copy);
-    const want2 = true;
-    it('it names prompts and conversations', () => {
-      assert.deepStrictEqual(got2, want2);
-    });
-    const got3 = /chart context/i.test(copy) && /OHLCV/i.test(copy);
-    const want3 = true;
-    it('it names chart context and recent OHLCV bars', () => {
-      assert.deepStrictEqual(got3, want3);
-    });
-    const got4 = /Pine source/i.test(copy);
-    const want4 = true;
-    it('it names Pine source', () => {
-      assert.deepStrictEqual(got4, want4);
-    });
-    const got5 = /model provider/i.test(copy);
-    const want5 = true;
-    it('it says the selected model provider receives the data', () => {
-      assert.deepStrictEqual(got5, want5);
-    });
-    const got6 = /API key[\s\S]*selected model provider/i.test(copy);
-    const want6 = true;
-    it('it says the selected provider receives the API key for authentication', () => {
-      assert.deepStrictEqual(got6, want6);
-    });
-    const got7 = ready;
-    const want7 = false;
-    it('configuration alone is not ready without consent', () => {
-      assert.deepStrictEqual(got7, want7);
-    });
+    // Saved on the options page, in another tab.
+    chr.store.apiKey = 'sk-ant-new';
+    await chr.fireChanged({ apiKey: { newValue: 'sk-ant-new' } });
+    assert.deepStrictEqual(hostEl.querySelector('#tva-key-status').textContent, 'Set');
+    assert.deepStrictEqual(api.isReady(), true);
+  });
 
-    const accept = hostEl.querySelector('#tva-disclosure-accept');
-    const got8 = !!accept;
-    const want8 = true;
-    it('the disclosure has an affirmative consent control', () => {
-      assert.deepStrictEqual(got8, want8);
-    });
-    if (accept) {
-      accept.checked = true;
-      fireChange(accept);
-    }
-    const got9 = chr.store.dataDisclosureAccepted;
-    const want9 = true;
-    it('affirmative consent is stored only after the checkbox changes', () => {
-      assert.deepStrictEqual(got9, want9);
-    });
-    const got10 = api.isReady?.();
-    const want10 = true;
-    it('the settings become ready after consent', () => {
-      assert.deepStrictEqual(got10, want10);
-    });
-  }
-
-  // ======================================================= the key fields
+  it('Manage key asks the worker for the options page', async () => {
+    const chr = makeChrome(stored);
+    const { Settings, doc } = load(chr);
+    const hostEl = doc.createElement('div');
+    await Settings.create(hostEl, { onChange: () => {} }).ready;
+    click(hostEl.querySelector('#tva-key-manage'));
+    assert.deepStrictEqual(chr.messages.at(-1), { type: 'open-options' });
+  });
 });
 
-describe('the API key fields are out of the page’s reach', async () => {
-  {
-    const chr = makeChrome({
-      provider: 'anthropic',
-      apiKey: 'sk-ant-secret',
-      model: 'claude-opus-5',
-    });
-    const { Settings, doc } = load(chr);
-    const hostEl = doc.createElement('div');
-    await Settings.create(hostEl, { onChange: () => {} }).ready;
-
-    const host = hostEl.querySelector('#tva-key');
-    const got11 = !!host;
-    const want11 = true;
-    it('the field is there', () => {
-      assert.deepStrictEqual(got11, want11);
-    });
-    const got12 = host.shadowRoot;
-    const want12 = null;
-    it('but its shadow root is closed', () => {
-      assert.deepStrictEqual(got12, want12);
-    });
-    const got13 = hostEl
-      .querySelectorAll('input')
-      .filter((i) => i.attrs.type === 'password').length;
-    const want13 = 0;
-    it('no input is reachable by walking the panel’s DOM', () => {
-      assert.deepStrictEqual(got13, want13);
-    });
-    const got14 = JSON.stringify(hostEl.querySelectorAll('input').map((i) => i.value)).includes(
-      'sk-ant-secret',
-    );
-    const want14 = false;
-    it('and the key is nowhere in the page tree', () => {
-      assert.deepStrictEqual(got14, want14);
-    });
-
-    // Inside, where only the extension can look, the field is loaded normally.
-    const got15 = secretInput(hostEl, '#tva-key').value;
-    const want15 = 'sk-ant-secret';
-    it('the key did reach the field itself', () => {
-      assert.deepStrictEqual(got15, want15);
-    });
-    const got16 = secretInput(hostEl, '#tva-key').attrs.type;
-    const want16 = 'password';
-    it('and it is a password field', () => {
-      assert.deepStrictEqual(got16, want16);
-    });
-  }
-
-  {
-    const chr = makeChrome({ provider: 'anthropic' });
-    const { Settings, doc } = load(chr);
-    const hostEl = doc.createElement('div');
-    await Settings.create(hostEl, { onChange: () => {} }).ready;
-
-    const input = secretInput(hostEl, '#tva-key');
-    input.value = '  sk-ant-typed  ';
-    fireChange(input);
-    const got17 = chr.store.apiKey;
-    const want17 = 'sk-ant-typed';
-    it('typing into it still writes storage, trimmed', () => {
-      assert.deepStrictEqual(got17, want17);
-    });
-
-    const other = secretInput(hostEl, '#tva-key2');
-    other.value = 'openai-typed';
-    fireChange(other);
-    const got18 = chr.store.openaiApiKey;
-    const want18 = 'openai-typed';
-    it('and each field writes its own slot', () => {
-      assert.deepStrictEqual(got18, want18);
-    });
-  }
-
-  // ========================================================= the migration
-});
-
-describe('migrating off the shared slot', async () => {
-  {
-    const chr = makeChrome({
-      provider: 'openai',
-      apiKey: 'sk-ant-real',
-      model: 'claude-opus-5',
-      baseUrl: 'http://localhost:11434/v1',
-    });
-    const { Settings, doc } = load(chr);
-    const hostEl = doc.createElement('div');
-    await Settings.create(hostEl, { onChange: () => {} }).ready;
-
-    const got19 = chr.store.apiKey;
-    const want19 = 'sk-ant-real';
-    it('an sk-ant key stays on the Anthropic side', () => {
-      assert.deepStrictEqual(got19, want19);
-    });
-    const got20 = chr.store.openaiApiKey;
-    const want20 = '';
-    it('the openai key is left empty', () => {
-      assert.deepStrictEqual(got20, want20);
-    });
-    // The model is decided on its own evidence, not by which provider is
-    // selected.
-    const got21 = chr.store.model;
-    const want21 = 'claude-opus-5';
-    it('a claude model stays on the Anthropic side too', () => {
-      assert.deepStrictEqual(got21, want21);
-    });
-    const got22 = chr.store.openaiModel;
-    const want22 = '';
-    it('and does not become the openai model', () => {
-      assert.deepStrictEqual(got22, want22);
-    });
-  }
-
-  {
-    const chr = makeChrome({
-      provider: 'openai',
-      apiKey: 'ollama-ignores-this',
-      model: 'gemma4:26b-a4b-it-qat',
-      baseUrl: 'http://localhost:11434/v1',
-    });
-    const { Settings, doc } = load(chr);
-    const hostEl = doc.createElement('div');
-    await Settings.create(hostEl, { onChange: () => {} }).ready;
-
-    const got23 = chr.store.openaiApiKey;
-    const want23 = 'ollama-ignores-this';
-    it('an ordinary key moves to the OpenAI side', () => {
-      assert.deepStrictEqual(got23, want23);
-    });
-    const got24 = chr.store.openaiModel;
-    const want24 = 'gemma4:26b-a4b-it-qat';
-    it('and so does the model', () => {
-      assert.deepStrictEqual(got24, want24);
-    });
-    const got25 = chr.store.apiKey;
-    const want25 = '';
-    it('the apiKey slot is cleared', () => {
-      assert.deepStrictEqual(got25, want25);
-    });
-    const got26 = chr.store.model;
-    const want26 = '';
-    it('the shared model slot is cleared', () => {
-      assert.deepStrictEqual(got26, want26);
-    });
-  }
-
-  // =================================================== the segmented controls
-});
+// =================================================== the segmented controls
 
 describe('the segmented controls', async () => {
   {
@@ -580,7 +485,7 @@ describe('loadModels: once per URL, again when it changes', async () => {
     let calls = 0;
     const relay = chr.runtime.sendMessage;
     chr.runtime.sendMessage = async (msg) => {
-      if (msg?.type === 'provider-permission') return relay(msg);
+      if (msg?.type !== 'list-models') return relay(msg);
       calls++;
       return { models: [{ id: 'model-a', tools: true }] };
     };
@@ -628,7 +533,7 @@ describe('loadModels: a failure releases the latch', async () => {
     let calls = 0;
     const relay = chr.runtime.sendMessage;
     chr.runtime.sendMessage = async (msg) => {
-      if (msg?.type === 'provider-permission') return relay(msg);
+      if (msg?.type !== 'list-models') return relay(msg);
       calls++;
       throw new Error('boom');
     };
@@ -656,4 +561,78 @@ describe('loadModels: a failure releases the latch', async () => {
       assert.deepStrictEqual(got55, want55);
     });
   }
+});
+
+describe('effort on an OpenAI-compatible provider', () => {
+  it('has its own control and its own storage slot', async () => {
+    const chr = makeChrome(
+      { provider: 'openai', baseUrl: 'http://localhost:11434/v1', effort: 'xhigh' },
+      { granted: ['http://localhost/*'] },
+    );
+    const { Settings, doc } = load(chr);
+    const hostEl = doc.createElement('div');
+    const api = Settings.create(hostEl, { onChange: () => {} });
+    await api.ready;
+
+    const seg = segByName(hostEl, 'openaiEffort');
+    assert.deepStrictEqual(seg.closest('[data-for]').classList.contains('tva-hidden'), false);
+    assert.deepStrictEqual(btnByValue(seg, 'auto').classList.contains('on'), true);
+
+    click(btnByValue(seg, 'off'));
+    assert.deepStrictEqual(chr.setCalls.at(-1), { openaiEffort: 'off' });
+    assert.deepStrictEqual([chr.store.effort, api.current().effort], ['xhigh', 'off']);
+  });
+});
+
+describe('the model picker', async () => {
+  const chr = makeChrome(
+    {
+      provider: 'openai',
+      baseUrl: 'http://localhost:11434/v1',
+      openaiModel: 'gemma4:26b',
+      dataDisclosureAccepted: true,
+    },
+    { granted: ['http://localhost/*'] },
+  );
+  const relay = chr.runtime.sendMessage;
+  chr.runtime.sendMessage = async (msg) =>
+    msg?.type === 'list-models'
+      ? {
+          models: [
+            { id: 'gemma4:26b', tools: true },
+            { id: 'qwen3:8b', tools: true },
+            { id: 'llama2:7b', tools: false },
+          ],
+        }
+      : relay(msg);
+  const { Settings, doc } = load(chr);
+  const hostEl = doc.createElement('div');
+  const api = Settings.create(hostEl, { onChange: () => {} });
+  await api.ready;
+  await api.refresh();
+
+  const input = hostEl.querySelector('#tva-model2');
+  const list = hostEl.querySelector('#tva-models');
+  const fire = (type) => (input.listeners[type] || []).forEach((fn) => fn({ target: input }));
+  const offered = () => list.querySelectorAll('.tva-combo-option').map((o) => o.dataset.value);
+
+  it('focus offers every model, whatever is already in the field', () => {
+    fire('focus');
+    assert.deepStrictEqual(list.classList.contains('tva-hidden'), false);
+    assert.deepStrictEqual(offered(), ['gemma4:26b', 'qwen3:8b', 'llama2:7b']);
+    assert.match(textOf(list), /llama2:7b\s*no tool support/);
+  });
+
+  it('typing narrows the list', () => {
+    input.value = 'QWEN';
+    fire('input');
+    assert.deepStrictEqual(offered(), ['qwen3:8b']);
+  });
+
+  it('a click picks the model, stores it and closes the list', () => {
+    click(list.querySelector('.tva-combo-option'));
+    assert.deepStrictEqual(input.value, 'qwen3:8b');
+    assert.deepStrictEqual(chr.setCalls.at(-1), { openaiModel: 'qwen3:8b' });
+    assert.deepStrictEqual(list.classList.contains('tva-hidden'), true);
+  });
 });
