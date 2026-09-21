@@ -1,8 +1,8 @@
 /**
  * TVAgent — the conversation surface.
  *
- * Owns the message list and the run trace. A run's tool calls collapse into
- * one "N actions" row.
+ * Owns the message list. Every tool call is its own row, always on screen;
+ * its input and result, and the model's reasoning, unfold on a click.
  */
 
 /** Top-level rows kept on screen. The model's own history is not affected. */
@@ -28,7 +28,7 @@ const esc = (s: unknown) => String(s).replace(/[&<>"']/g, (c) => ESCAPES[c]);
  */
 const inlineCode = (text: string) => esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>');
 
-/** Nobody reads a 40KB blob in a collapsed trace row. */
+/** Nobody reads a 40KB blob in a tool row. */
 const clip = (text: string) =>
   text.length > MAX_BLOB_CHARS
     ? `${text.slice(0, MAX_BLOB_CHARS)}\n… ${text.length - MAX_BLOB_CHARS} more characters`
@@ -50,7 +50,6 @@ function create(listEl: HTMLElement) {
   let assistantEl: HTMLElement | null = null;
   let assistant: Streamer | null = null; // the renderer writing into assistantEl
   let thinkingEl: HTMLElement | null = null;
-  let runEl: HTMLDetailsElement | null = null; // the collapsed activity row
   const tools = new Map<string, HTMLElement>();
   // Confirmation cards still waiting on the user; a run that ends has to
   // settle them.
@@ -160,27 +159,16 @@ function create(listEl: HTMLElement) {
     };
   }
 
-  /** One row per run, holding every tool call and every thinking block. */
-  function run() {
-    if (runEl) return runEl;
+  /** A folded row in the list: a summary line over a body. */
+  function row(className: string, summary: string, body: HTMLElement) {
     const details = document.createElement('details');
-    details.className = 'tva-run';
-    details.innerHTML =
-      '<summary><span class="tva-run-mark"></span>' +
-      '<span class="tva-run-label">working…</span></summary>' +
-      '<div class="tva-run-body"></div>';
+    details.className = className;
+    details.innerHTML = `<summary>${summary}</summary>`;
+    details.appendChild(body);
     listEl.appendChild(details);
-    runEl = details;
     trimRows();
     scroll();
     return details;
-  }
-
-  function countActions() {
-    const row = run();
-    const done = row.querySelectorAll('.tva-call').length;
-    const label = row.querySelector('.tva-run-label');
-    if (label) label.textContent = done === 1 ? '1 action' : `${done} actions`;
   }
 
   /** Answers every card still on screen, so nothing is left awaiting one. */
@@ -195,7 +183,7 @@ function create(listEl: HTMLElement) {
       settleConfirms();
       assistant?.flush();
       listEl.innerHTML = '';
-      assistantEl = thinkingEl = runEl = null;
+      assistantEl = thinkingEl = null;
       assistant = null;
       tools.clear();
     },
@@ -204,20 +192,15 @@ function create(listEl: HTMLElement) {
     error: (text: unknown) => add('tva-msg error', esc(text)),
     user: (text: unknown) => add('tva-msg user', esc(text)),
 
-    /** Called when a run starts, so the next tool call opens a fresh row. */
     startRun() {
-      assistantEl = thinkingEl = runEl = null;
+      assistantEl = thinkingEl = null;
       assistant = null;
     },
 
     endRun() {
       settleConfirms();
       assistant?.flush();
-      if (runEl) {
-        runEl.querySelector('.tva-run-mark')?.classList.add('done');
-        countActions();
-      }
-      assistantEl = thinkingEl = runEl = null;
+      assistantEl = thinkingEl = null;
       assistant = null;
     },
 
@@ -233,8 +216,8 @@ function create(listEl: HTMLElement) {
     onThinking(delta: string) {
       if (!thinkingEl) {
         thinkingEl = document.createElement('div');
-        thinkingEl.className = 'tva-think';
-        run().querySelector('.tva-run-body')?.appendChild(thinkingEl);
+        thinkingEl.className = 'tva-think-body';
+        row('tva-think', 'Reasoning', thinkingEl);
       }
       thinkingEl.textContent += delta;
       scroll();
@@ -253,16 +236,17 @@ function create(listEl: HTMLElement) {
       assistant?.flush();
       assistantEl = null;
       assistant = null;
-      const call = document.createElement('div');
-      call.className = 'tva-call';
-      call.innerHTML =
-        `<div class="tva-call-head"><span class="tva-call-name">${esc(name)}</span>` +
-        '<span class="tva-call-status pending">running…</span></div>' +
-        `<pre class="tva-call-body">${esc(clip(asText(input) || ''))}</pre>`;
-      run().querySelector('.tva-run-body')?.appendChild(call);
+      thinkingEl = null;
+      const body = document.createElement('pre');
+      body.className = 'tva-call-body';
+      body.textContent = clip(asText(input) || '');
+      const call = row(
+        'tva-call',
+        `<span class="tva-call-name">${esc(name)}</span>` +
+          '<span class="tva-call-status pending">running…</span>',
+        body,
+      );
       tools.set(id, call);
-      countActions();
-      scroll();
     },
 
     onToolResult({ id, ok, result }: { id: string; ok: boolean; result: unknown }) {
@@ -277,7 +261,7 @@ function create(listEl: HTMLElement) {
       const body = call.querySelector('.tva-call-body');
       if (body) body.textContent += '\n\n→ ' + clip(asText(result) || '');
       // A failure is the one thing worth unfolding without being asked.
-      if (!ok && runEl) runEl.open = true;
+      if (!ok) (call as HTMLDetailsElement).open = true;
       scroll();
     },
 

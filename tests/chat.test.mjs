@@ -241,43 +241,52 @@ describe('what really arrives from the model does not reach the DOM as tags', as
   // ------------------------------------------------------ run collapsing
 });
 
-describe('one run row for N calls, not N boxes', async () => {
-  {
+describe('tool calls are always on screen', () => {
+  it('every call is its own top-level row, in order, with its name showing', () => {
     const { listEl, chat } = fresh();
     chat.startRun();
     chat.onToolStart({ id: 'a', name: 'get_chart', input: {} });
+    chat.onText('Switching symbol.');
     chat.onToolStart({ id: 'b', name: 'set_symbol', input: { symbol: 'BTCUSD' } });
-    chat.onToolStart({ id: 'c', name: 'add_indicator', input: { name: 'EMA' } });
 
-    const got23 = listEl.querySelectorAll('.tva-run').length;
-    const want23 = 1;
-    it('three onToolStart, one .tva-run row', () => {
-      assert.deepStrictEqual(got23, want23);
-    });
-    const got24 = listEl.querySelectorAll('.tva-call').length;
-    const want24 = 3;
-    it('with three .tva-call inside it', () => {
-      assert.deepStrictEqual(got24, want24);
-    });
-    const got25 = listEl.querySelector('.tva-run-label').textContent;
-    const want25 = '3 actions';
-    it('labelled "3 actions"', () => {
-      assert.deepStrictEqual(got25, want25);
-    });
-  }
+    assert.deepStrictEqual(
+      listEl.children.map((row) => row.className),
+      ['tva-call', 'tva-msg assistant', 'tva-call'],
+    );
+    assert.deepStrictEqual(
+      listEl.querySelectorAll('.tva-call-name').map((n) => n.textContent),
+      ['get_chart', 'set_symbol'],
+    );
+  });
 
-  {
+  it('the input stays folded under the row', () => {
     const { listEl, chat } = fresh();
     chat.startRun();
-    chat.onToolStart({ id: 'a', name: 'get_chart', input: {} });
-    const got26 = listEl.querySelector('.tva-run-label').textContent;
-    const want26 = '1 action';
-    it('one call is "1 action", singular', () => {
-      assert.deepStrictEqual(got26, want26);
-    });
-  }
+    chat.onToolStart({ id: 'a', name: 'set_symbol', input: { symbol: 'BTCUSD' } });
+    const call = listEl.querySelector('.tva-call');
+    assert.deepStrictEqual(call.tagName, 'DETAILS');
+    assert.deepStrictEqual(call.open, false);
+    assert.match(call.querySelector('.tva-call-body').textContent, /BTCUSD/);
+  });
 
-  // -------------------------------------------------------------- onToolResult
+  it('reasoning is a folded row of its own, and a tool call ends it', () => {
+    const { listEl, chat } = fresh();
+    chat.startRun();
+    chat.onThinking('first ');
+    chat.onThinking('thought');
+    chat.onToolStart({ id: 'a', name: 'get_chart', input: {} });
+    chat.onThinking('second thought');
+
+    assert.deepStrictEqual(
+      listEl.children.map((row) => row.className),
+      ['tva-think', 'tva-call', 'tva-think'],
+    );
+    assert.deepStrictEqual(listEl.children[0].open, false);
+    assert.deepStrictEqual(
+      listEl.querySelectorAll('.tva-think-body').map((n) => n.textContent),
+      ['first thought', 'second thought'],
+    );
+  });
 });
 
 describe('onToolResult', async () => {
@@ -287,9 +296,9 @@ describe('onToolResult', async () => {
     chat.onToolStart({ id: 'f', name: 'set_pine_code', input: {} });
     chat.onToolResult({ id: 'f', ok: false, result: 'boom' });
 
-    const got27 = listEl.querySelector('.tva-run').open;
+    const got27 = listEl.querySelector('.tva-call').open;
     const want27 = true;
-    it('a failure unfolds the run row', () => {
+    it('a failure unfolds the call', () => {
       assert.deepStrictEqual(got27, want27);
     });
     const got28 = listEl.querySelector('.tva-call-status').textContent;
@@ -305,7 +314,7 @@ describe('onToolResult', async () => {
     chat.onToolStart({ id: 's', name: 'get_chart', input: {} });
     chat.onToolResult({ id: 's', ok: true, result: 'fine' });
 
-    const got29 = listEl.querySelector('.tva-run').open;
+    const got29 = listEl.querySelector('.tva-call').open;
     const want29 = false;
     it('a success leaves it folded', () => {
       assert.deepStrictEqual(got29, want29);
@@ -363,87 +372,33 @@ describe('onToolResult', async () => {
   // ----------------------------------------------------------------- lifecycle
 });
 
-describe('lifecycle: startRun / endRun / clear', async () => {
-  {
-    const { listEl, chat } = fresh();
-
-    chat.startRun();
-    chat.onToolStart({ id: 'a', name: 'first', input: {} });
-    chat.endRun();
-
-    chat.startRun();
-    chat.onToolStart({ id: 'b', name: 'second', input: {} });
-    chat.endRun();
-
-    const got35 = listEl.querySelectorAll('.tva-run').length;
-    const want35 = 2;
-    it('two runs are two separate rows', () => {
-      assert.deepStrictEqual(got35, want35);
-    });
-    const labels = listEl.querySelectorAll('.tva-run-label').map((n) => n.textContent);
-    const got36 = labels;
-    const want36 = ['1 action', '1 action'];
-    it('each counts its own actions, with nothing carried over', () => {
-      assert.deepStrictEqual(got36, want36);
-    });
-    const marks = listEl.querySelectorAll('.tva-run-mark');
-    const got37 = marks.every((m) => m.classList.contains('done'));
-    const want37 = true;
-    it('both are marked done', () => {
-      assert.deepStrictEqual(got37, want37);
-    });
-  }
-
-  {
-    // A plain text answer with no tool call: runEl is never created, and
-    // endRun() has to survive that.
+describe('lifecycle: startRun / endRun / clear', () => {
+  it('endRun() on a run with no tool call leaves only the answer', () => {
     const { listEl, chat } = fresh();
     chat.startRun();
     chat.onText('hi');
-    let threw = false;
-    try {
-      chat.endRun();
-    } catch (_) {
-      threw = true;
-    }
-    const got38 = threw;
-    const want38 = false;
-    it('endRun() on a run with no tool call does not throw', () => {
-      assert.deepStrictEqual(got38, want38);
-    });
-    const got39 = listEl.querySelectorAll('.tva-run').length;
-    const want39 = 0;
-    it('and does not leave an empty .tva-run row', () => {
-      assert.deepStrictEqual(got39, want39);
-    });
-  }
+    chat.endRun();
+    assert.deepStrictEqual(
+      listEl.children.map((row) => row.className),
+      ['tva-msg assistant'],
+    );
+  });
 
-  {
-    // No endRun(): clear() has to reset runEl itself, as New chat mid-run does.
+  it('a result that arrives after clear() is dropped, and new calls still land', () => {
+    // New chat mid-run: the old call's row is gone.
     const { listEl, chat } = fresh();
     chat.startRun();
     chat.onToolStart({ id: 'a', name: 'first', input: {} });
     chat.clear();
-    const got40 = listEl.children.length;
-    const want40 = 0;
-    it('clear() empties the list even mid-run', () => {
-      assert.deepStrictEqual(got40, want40);
-    });
+    assert.deepStrictEqual(listEl.children.length, 0);
 
+    chat.onToolResult({ id: 'a', ok: true, result: 'late' });
     chat.onToolStart({ id: 'c', name: 'third', input: {} });
-    const got41 = listEl.querySelectorAll('.tva-run').length;
-    const want41 = 1;
-    it('a call after clear() opens a fresh run rather than going nowhere', () => {
-      assert.deepStrictEqual(got41, want41);
-    });
-    const got42 = listEl.querySelector('.tva-run-label').textContent;
-    const want42 = '1 action';
-    it('with exactly one action in it', () => {
-      assert.deepStrictEqual(got42, want42);
-    });
-  }
-
-  // -------------------------------------------------------------- onConfirm
+    assert.deepStrictEqual(
+      listEl.querySelectorAll('.tva-call-name').map((n) => n.textContent),
+      ['third'],
+    );
+  });
 });
 
 describe('onConfirm', async () => {
