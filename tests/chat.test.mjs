@@ -386,7 +386,7 @@ describe('tool calls are always on screen', () => {
     assert.match(call.querySelector('.tva-call-body').textContent, /BTCUSD/);
   });
 
-  it('reasoning is a folded row of its own, and a tool call ends it', () => {
+  it('reasoning is an unfolded row of its own, and a tool call ends it', () => {
     const { listEl, chat } = fresh();
     chat.startRun();
     chat.onThinking('first ');
@@ -398,7 +398,7 @@ describe('tool calls are always on screen', () => {
       listEl.children.map((row) => row.className),
       ['tva-think', 'tva-call', 'tva-think'],
     );
-    assert.deepStrictEqual(listEl.children[0].open, false);
+    assert.deepStrictEqual(listEl.children[0].open, true);
     assert.deepStrictEqual(
       listEl.querySelectorAll('.tva-think-body').map((n) => n.textContent),
       ['first thought', 'second thought'],

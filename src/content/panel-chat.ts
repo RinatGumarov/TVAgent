@@ -2,7 +2,8 @@
  * TVAgent — the conversation surface.
  *
  * Owns the message list. Every tool call is its own row, always on screen;
- * its input and result, and the model's reasoning, unfold on a click.
+ * its input and result unfold on a click. The model's reasoning arrives
+ * unfolded, since it is worth reading as it streams.
  */
 
 import { blocks, render } from './markdown';
@@ -189,7 +190,7 @@ function create(listEl: HTMLElement, scrollEl: HTMLElement = listEl) {
       if (!thinkingEl) {
         thinkingEl = document.createElement('div');
         thinkingEl.className = 'tva-think-body';
-        row('tva-think', 'Reasoning', thinkingEl);
+        (row('tva-think', 'Reasoning', thinkingEl) as HTMLDetailsElement).open = true;
       }
       thinkingEl.textContent += delta;
       scroll();
