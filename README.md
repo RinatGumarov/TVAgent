@@ -8,11 +8,11 @@ strategy reports. No screen scraping and no DOM clicking.
 Ask it "add EMA 50 and 200", "mark the high and low of the visible range", or
 "build an EMA crossover strategy and backtest it".
 
-![Adding EMA 50 and EMA 200 from the chat](.github/media/indicators.gif)
+![Adding EMA 50 and EMA 200 from the chat](https://github.com/user-attachments/assets/9491f5f3-06b2-468f-926b-8328c94c4d8f)
 
-![Marking the high and low of the visible range](.github/media/levels.gif)
+![Marking the high and low of the visible range](https://github.com/user-attachments/assets/42a4e5aa-85fa-452f-8fca-803de6da0f30)
 
-![Writing an EMA crossover strategy in Pine and backtesting it](.github/media/strategy.gif)
+![Writing an EMA crossover strategy in Pine and backtesting it](https://github.com/user-attachments/assets/db9fab5a-131c-4611-ad89-bb2830a09658)
 
 Recorded on a live chart with a local model (`gemma4:26b-a4b-it-qat`); in
 the second, the wait for the model is sped up.
