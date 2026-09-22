@@ -13,6 +13,9 @@ const MAX_ROWS = 300;
 /** Per tool call, in the trace. get_series_data alone returns ~300 bars. */
 const MAX_BLOB_CHARS = 2000;
 
+/** How close to the bottom still counts as "at the bottom". */
+const FOLLOW_SLACK_PX = 24;
+
 const ESCAPES: Record<string, string> = {
   '&': '&amp;',
   '<': '&lt;',
@@ -40,7 +43,8 @@ interface Streamer {
 /** Resolves one confirmation card, whoever answers it. */
 type ConfirmFinish = (allowed: boolean, word?: string) => void;
 
-function create(listEl: HTMLElement) {
+/** `scrollEl` is the element that scrolls; the list grows inside it. */
+function create(listEl: HTMLElement, scrollEl: HTMLElement = listEl) {
   let assistantEl: HTMLElement | null = null;
   let assistant: Streamer | null = null; // the renderer writing into assistantEl
   let thinkingEl: HTMLElement | null = null;
@@ -49,7 +53,25 @@ function create(listEl: HTMLElement) {
   // settle them.
   const openConfirms = new Set();
 
-  const scroll = () => (listEl.scrollTop = listEl.scrollHeight);
+  // The list follows new output only while the reader is at the bottom.
+  // Scrolling up stops it; coming back down turns it on again.
+  let follow = true;
+  const atBottom = () =>
+    scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight <= FOLLOW_SLACK_PX;
+  scrollEl.addEventListener('scroll', () => (follow = atBottom()));
+  // A wheel turn upwards is intent before its scroll event lands, and a
+  // delta arriving in between would pull the list back down.
+  scrollEl.addEventListener('wheel', (e) => {
+    if ((e as WheelEvent).deltaY < 0) follow = false;
+  });
+
+  const toBottom = () => {
+    follow = true;
+    scrollEl.scrollTop = scrollEl.scrollHeight;
+  };
+  const scroll = () => {
+    if (follow) scrollEl.scrollTop = scrollEl.scrollHeight;
+  };
 
   /**
    * A conversation that runs all afternoon would otherwise grow a node per
@@ -129,6 +151,7 @@ function create(listEl: HTMLElement) {
     clear() {
       settleConfirms();
       listEl.innerHTML = '';
+      follow = true;
       assistantEl = thinkingEl = null;
       assistant = null;
       tools.clear();
@@ -136,7 +159,12 @@ function create(listEl: HTMLElement) {
 
     notice: (text: unknown) => add('tva-msg notice', esc(text)),
     error: (text: unknown) => add('tva-msg error', esc(text)),
-    user: (text: unknown) => add('tva-msg user', esc(text)),
+    user(text: unknown) {
+      // Sending is a request to see the answer, wherever the list was.
+      const el = add('tva-msg user', esc(text));
+      toBottom();
+      return el;
+    },
 
     startRun() {
       assistantEl = thinkingEl = null;
@@ -222,7 +250,8 @@ function create(listEl: HTMLElement) {
           '<button class="tva-btn" data-no>Deny</button></div>';
         listEl.appendChild(el);
         trimRows();
-        scroll();
+        // The run waits on this card, so it is shown even to a reader above.
+        toBottom();
 
         const finish: ConfirmFinish = (allowed, word) => {
           openConfirms.delete(finish);

@@ -88,7 +88,7 @@ function build(mountRoot: HTMLElement) {
         <span class="tva-status" id="tva-status"><i class="tva-dot"></i><span>connecting…</span></span>
       </div>
 
-      <div class="tva-body">
+      <div class="tva-body" id="tva-body">
         <div class="tva-empty" id="tva-empty">
           <h2>What should I do on this chart?</h2>
           <p>I read the chart and change it directly — indicators, levels, Pine.</p>
@@ -134,7 +134,7 @@ function build(mountRoot: HTMLElement) {
   ctxLabelEl = need('#tva-in-context-label');
   ctxPopEl = need('#tva-ctx-pop');
 
-  chat = TVAgentChat.create(listEl);
+  chat = TVAgentChat.create(listEl, need('#tva-body'));
 
   const sugEl = need('#tva-suggestions');
   SUGGESTIONS.forEach((text) => {

@@ -1,7 +1,14 @@
 /** Runs the real panel-chat.js under the fake DOM. */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeDocument, click, findTag, findDangerousTag, descendants } from './helpers/dom.mjs';
+import {
+  makeDocument,
+  click,
+  fireEvent,
+  findTag,
+  findDangerousTag,
+  descendants,
+} from './helpers/dom.mjs';
 import { loadModule } from './helpers/load.mjs';
 
 function load(doc) {
@@ -635,4 +642,75 @@ describe('the list does not grow without bound', async () => {
       assert.deepStrictEqual(got57, want57);
     });
   }
+});
+
+describe('following the output', () => {
+  /**
+   * The panel's shape: the list grows inside a body 100px tall, and the body
+   * is what scrolls.
+   */
+  function sized() {
+    const doc = makeDocument();
+    const Chat = load(doc);
+    const body = doc.createElement('div');
+    const listEl = doc.createElement('div');
+    body.appendChild(listEl);
+    body.clientHeight = 100;
+    return {
+      body,
+      chat: Chat.create(listEl, body),
+      grow: (height) => (body.scrollHeight = height),
+      scrollTo: (top) => {
+        body.scrollTop = top;
+        fireEvent(body, 'scroll');
+      },
+    };
+  }
+
+  it('stays at the bottom while text streams in', () => {
+    const { body, chat, grow } = sized();
+    chat.startRun();
+    grow(300);
+    chat.onText('one ');
+    grow(500);
+    chat.onText('two');
+    assert.deepStrictEqual(body.scrollTop, 500);
+  });
+
+  it('stops following once the reader scrolls up, and resumes at the bottom', () => {
+    const { body, chat, grow, scrollTo } = sized();
+    chat.startRun();
+    grow(500);
+    chat.onText('one ');
+    scrollTo(200);
+    grow(700);
+    chat.onText('two ');
+    assert.deepStrictEqual(body.scrollTop, 200);
+
+    scrollTo(600);
+    grow(900);
+    chat.onText('three');
+    assert.deepStrictEqual(body.scrollTop, 900);
+  });
+
+  it('an upward wheel turn stops following before its scroll event', () => {
+    const { body, chat, grow } = sized();
+    chat.startRun();
+    grow(500);
+    chat.onText('one ');
+    body.listeners.wheel.forEach((fn) => fn({ deltaY: -40 }));
+    grow(700);
+    chat.onText('two');
+    assert.deepStrictEqual(body.scrollTop, 500);
+  });
+
+  it('sending a message brings the list back down', () => {
+    const { body, chat, grow, scrollTo } = sized();
+    grow(500);
+    chat.notice('hello');
+    scrollTo(100);
+    grow(600);
+    chat.user('add EMA 50');
+    assert.deepStrictEqual(body.scrollTop, 600);
+  });
 });
