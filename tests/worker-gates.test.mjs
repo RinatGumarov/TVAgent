@@ -15,16 +15,21 @@ const json = (body, status = 200) => ({
   text: async () => JSON.stringify(body),
 });
 
-function loadWorker(data, { granted = [], grantRequests = true, respond } = {}) {
+function loadWorker(data, { granted = [], grantRequests = true, respond, timers = {} } = {}) {
   let messageListener = null;
   let connectListener = null;
   const permissionCalls = [];
   const fetchCalls = [];
+  const pings = [];
   const origins = new Set(granted);
   const chrome = {
     action: { onClicked: { addListener() {} } },
     tabs: { sendMessage: () => Promise.resolve() },
     runtime: {
+      getPlatformInfo: async () => {
+        pings.push(1);
+        return {};
+      },
       onMessage: {
         addListener(fn) {
           messageListener = fn;
@@ -66,6 +71,7 @@ function loadWorker(data, { granted = [], grantRequests = true, respond } = {}) 
   loadModule('background/service-worker.js', {
     chrome,
     fetch: fetchStub,
+    ...timers,
   }).registerWorker();
 
   async function message(msg) {
@@ -95,7 +101,7 @@ function loadWorker(data, { granted = [], grantRequests = true, respond } = {}) 
     return posts;
   }
 
-  return { message, run, permissionCalls, fetchCalls };
+  return { message, run, permissionCalls, fetchCalls, pings };
 }
 
 describe('permission relay', () => {
@@ -216,5 +222,41 @@ describe('reasoning effort on an OpenAI-compatible provider', () => {
     const posts = await worker.run(turn);
     assert.deepStrictEqual(worker.fetchCalls.length, 1);
     assert.ok(posts.some((p) => p.type === 'error' && /context too long/.test(p.error)));
+  });
+});
+
+describe('worker lifetime during a turn', () => {
+  it('pings an extension API while the model is silent, and stops after', async () => {
+    const intervals = new Map();
+    const timers = {
+      setInterval: (fn, ms) => {
+        intervals.set(intervals.size + 1, { fn, ms });
+        return intervals.size;
+      },
+      clearInterval: (id) => intervals.delete(id),
+    };
+    let reply;
+    const respond = () => new Promise((resolve) => (reply = resolve));
+    const worker = loadWorker(
+      {
+        provider: 'openai',
+        baseUrl: 'http://localhost:11434/v1',
+        openaiModel: 'model-a',
+        dataDisclosureAccepted: true,
+      },
+      { granted: ['http://localhost/*'], respond, timers },
+    );
+    const done = worker.run({ type: 'run', system: 's', messages: [], tools: [] });
+
+    while (!reply) await new Promise((r) => setImmediate(r));
+    const [timer] = intervals.values();
+    assert.ok(timer.ms < 30_000);
+    timer.fn();
+    assert.deepStrictEqual(worker.pings.length, 1);
+
+    reply(json({}));
+    const posts = await done;
+    assert.ok(posts.some((p) => p.type === 'done'));
+    assert.deepStrictEqual(intervals.size, 0);
   });
 });

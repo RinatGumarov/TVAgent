@@ -256,6 +256,9 @@ export function registerWorker() {
         return;
       }
 
+      // Chrome stops a worker after 30s without extension events, and a fetch
+      // waiting on a slow local model sends none. Any API call resets the timer.
+      const keepAlive = setInterval(() => chrome.runtime.getPlatformInfo(), 20_000);
       try {
         const message =
           cfg.provider === 'anthropic'
@@ -265,6 +268,8 @@ export function registerWorker() {
       } catch (err) {
         if ((err as Error).name === 'AbortError') return;
         port.postMessage({ type: 'error', error: (err as Error).message || String(err) });
+      } finally {
+        clearInterval(keepAlive);
       }
     });
   });
