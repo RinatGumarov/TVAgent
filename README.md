@@ -15,7 +15,7 @@ Ask it "add EMA 50 and 200", "mark the high and low of the visible range", or
 ![Writing an EMA crossover strategy in Pine and backtesting it](.github/media/strategy.gif)
 
 Recorded on a live chart with a local model (`gemma4:26b-a4b-it-qat`); in
-the first two, the waits for the model are sped up.
+the second, the wait for the model is sped up.
 
 ## Install
 
