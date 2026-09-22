@@ -8,6 +8,13 @@ strategy reports. No screen scraping and no DOM clicking.
 Ask it "add EMA 50 and 200", "mark the high and low of the visible range", or
 "build an EMA crossover strategy and backtest it".
 
+![Adding EMA 50 and EMA 200 from the chat](.github/media/indicators.gif)
+
+![Marking the high and low of the visible range](.github/media/levels.gif)
+
+Recorded on a live chart with a local model (`gemma4:26b-a4b-it-qat`); the
+waits for the model are sped up.
+
 ## Install
 
 TVAgent is not on the Chrome Web Store yet, so it is loaded unpacked.
