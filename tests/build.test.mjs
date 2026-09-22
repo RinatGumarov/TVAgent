@@ -52,7 +52,7 @@ function makeChartApi() {
     onSymbolChanged: () => ({ subscribe: () => {} }),
     onIntervalChanged: () => ({ subscribe: () => {} }),
   };
-  return { activeChart: () => chart, pineEditorTestApi: () => ({}) };
+  return { activeChart: () => chart, pineEditorApi: () => ({}) };
 }
 
 describe('the shipped bundles talk to each other', () => {

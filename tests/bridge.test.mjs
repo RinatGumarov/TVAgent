@@ -29,7 +29,7 @@ async function boot() {
   const { spawn } = makeWorlds();
 
   const main = spawn({
-    TradingViewApi: { activeChart: makeChart, pineEditorTestApi: () => ({}) },
+    TradingViewApi: { activeChart: makeChart, pineEditorApi: () => ({}) },
     user: { id: 1 },
   });
   const iso = spawn({});

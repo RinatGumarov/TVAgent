@@ -97,6 +97,7 @@ export interface Chart {
   onIntervalChanged(): ChartSubscription;
 }
 
+/** The pre-2026-09 editor API; kept as a fallback. */
 export interface PineEditorTestApi {
   openEditor(): Promise<void>;
   openNewScript(): Promise<void>;
@@ -104,9 +105,35 @@ export interface PineEditorTestApi {
   addScriptOnChart(): Promise<void>;
 }
 
+/** An open Pine Editor, one per placement. */
+export interface PineEditorFacade {
+  placement: 'dialog' | 'bottom' | 'detach';
+  /** False for a saved script: editing it would save over the user's work. */
+  isDraft(): boolean;
+  isModified(): boolean;
+  openNewScript(kind?: 'indicator' | 'strategy' | 'library'): Promise<void>;
+  setScript(code: string): Promise<void>;
+  getSource(): Promise<string>;
+  addToChart(): Promise<void>;
+}
+
+export interface PineEditorApi {
+  /**
+   * Without a placement TradingView picks one, and may open a new tab.
+   * `dialog` also needs `forceOpen` while the widget bar is collapsed.
+   */
+  open(options?: {
+    placement?: 'dialog' | 'bottom' | 'detach';
+    forceOpen?: boolean;
+  }): Promise<void>;
+  getDialogFacade(): PineEditorFacade | null;
+  getBottomFacade(): PineEditorFacade | null;
+}
+
 export interface TradingViewApi {
   activeChart(): Chart;
-  pineEditorTestApi(): PineEditorTestApi;
+  pineEditorApi?(): PineEditorApi;
+  pineEditorTestApi?(): PineEditorTestApi;
 }
 
 /** One page in the right-hand widget bar. */

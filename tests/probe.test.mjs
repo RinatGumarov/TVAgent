@@ -46,7 +46,7 @@ function makeChart(flaky, { lastClose = 65432.1, hasBars = true, lastThrows = fa
   };
 
   return {
-    api: { activeChart: () => chart, pineEditorTestApi: () => ({}) },
+    api: { activeChart: () => chart, pineEditorApi: () => ({}) },
     /** What the user does: switch the symbol, and TradingView tells us. */
     switchTo(nextSymbol, nextResolution) {
       symbol = nextSymbol;

@@ -7,7 +7,12 @@
  */
 import * as wire from '../shared/wire.ts';
 import { poll } from '../shared/wait.ts';
-import type { Chart, WidgetBarLayout, WidgetBarPage } from '../types/tradingview.d.ts';
+import type {
+  Chart,
+  PineEditorFacade,
+  WidgetBarLayout,
+  WidgetBarPage,
+} from '../types/tradingview.d.ts';
 import type { ProbeReport } from '../shared/protocol.ts';
 
 /** Mints the secret, registers the handlers and announces the driver. */
@@ -66,6 +71,24 @@ export function startDriver() {
     const c = api().activeChart();
     if (!c) throw new Error('No active chart.');
     return c;
+  }
+
+  /** The open Pine Editor; opens it in the side panel if none is. */
+  async function pineEditor(): Promise<PineEditorFacade> {
+    const p = api().pineEditorApi!();
+    const current = () => p.getBottomFacade() || p.getDialogFacade();
+    if (!current()) await p.open({ placement: 'dialog', forceOpen: true });
+    const f = await poll(current, { attempts: 20, intervalMs: 250 });
+    if (!f) throw new Error('The Pine Editor did not open.');
+    return f;
+  }
+
+  const hasPineApi = () => typeof api().pineEditorApi === 'function';
+
+  function legacyPine() {
+    const a = api();
+    if (typeof a.pineEditorTestApi !== 'function') throw new Error('Pine Editor API unavailable.');
+    return a.pineEditorTestApi();
   }
 
   /** Loaded OHLCV window. TradingView keeps ~300 bars in memory. */
@@ -708,11 +731,12 @@ export function startDriver() {
       report.ready = report.chart && !!report.symbol && report.resolution != null;
 
       try {
-        report.pine = typeof api().pineEditorTestApi === 'function' && !!api().pineEditorTestApi();
+        report.pine = hasPineApi() ? !!api().pineEditorApi!() : !!legacyPine();
       } catch (_) {
         report.pine = false;
-        report.warnings.push('Pine Editor API unavailable — Pine tools are disabled.');
       }
+      if (!report.pine)
+        report.warnings.push('Pine Editor API unavailable — Pine tools are disabled.');
 
       return report;
     },
@@ -928,22 +952,48 @@ export function startDriver() {
     // ---- pine -------------------------------------------------------------
 
     async open_pine_editor({ newScript = true } = {}) {
-      const p = api().pineEditorTestApi();
-      await p.openEditor();
-      if (newScript) await p.openNewScript();
+      if (hasPineApi()) {
+        const f = await pineEditor();
+        if (newScript) await f.openNewScript();
+      } else {
+        const p = legacyPine();
+        await p.openEditor();
+        if (newScript) await p.openNewScript();
+      }
       return { open: true, newScript: !!newScript };
     },
 
     async set_pine_code({ code }: Params) {
       if (!code) throw new Error('code is required');
-      await api().pineEditorTestApi().setEditorText(String(code));
-      return { ok: true, length: String(code).length };
+      const source = String(code);
+      if (!hasPineApi()) {
+        await legacyPine().setEditorText(source);
+        return { ok: true, length: source.length };
+      }
+      const f = await pineEditor();
+      // Never write into a saved script: adding it to the chart would save over it.
+      if (!f.isDraft()) await f.openNewScript();
+      // setScript is a no-op until the editor has mounted.
+      const taken = await poll(
+        async () => {
+          try {
+            await f.setScript(source);
+            return (await f.getSource()) === source;
+          } catch (_) {
+            return false;
+          }
+        },
+        { attempts: 10, intervalMs: 300 },
+      );
+      if (!taken) throw new Error('The Pine Editor did not take the code.');
+      return { ok: true, length: source.length };
     },
 
     async add_pine_to_chart() {
       const c = chart();
       const before = new Set(c.getAllStudies().map((s) => s.id));
-      await api().pineEditorTestApi().addScriptOnChart();
+      if (hasPineApi()) await (await pineEditor()).addToChart();
+      else await legacyPine().addScriptOnChart();
 
       // Compilation + attach is async; wait for the new study to appear.
       const added = await poll(() => c.getAllStudies().find((s) => !before.has(s.id)), {
