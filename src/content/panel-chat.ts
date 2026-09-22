@@ -5,6 +5,8 @@
  * its input and result, and the model's reasoning, unfold on a click.
  */
 
+import { blocks, render } from './markdown';
+
 /** Top-level rows kept on screen. The model's own history is not affected. */
 const MAX_ROWS = 300;
 
@@ -21,13 +23,6 @@ const ESCAPES: Record<string, string> = {
 
 const esc = (s: unknown) => String(s).replace(/[&<>"']/g, (c) => ESCAPES[c]);
 
-/**
- * The only markup the panel renders: fenced blocks (streamer) and inline
- * code. A model answer is prose; a full markdown renderer would be a far
- * larger surface.
- */
-const inlineCode = (text: string) => esc(text).replace(/`([^`\n]+)`/g, '<code>$1</code>');
-
 /** Nobody reads a 40KB blob in a tool row. */
 const clip = (text: string) =>
   text.length > MAX_BLOB_CHARS
@@ -37,10 +32,9 @@ const clip = (text: string) =>
 const asText = (value: unknown) =>
   typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 
-/** Appends deltas to one element, splitting fenced blocks out as they arrive. */
+/** Appends deltas to one element, rendered as markdown as they arrive. */
 interface Streamer {
   push(delta: unknown): void;
-  flush(): void;
 }
 
 /** Resolves one confirmation card, whoever answers it. */
@@ -86,75 +80,28 @@ function create(listEl: HTMLElement) {
   }
 
   /**
-   * Streams model text into one message element. Only the segment being
-   * written can still change; the ones before it are closed nodes.
+   * Streams model text into one message element. The whole answer is parsed
+   * again on each delta, since a later line can change an earlier one; a
+   * block that another has followed is closed, and its node is kept.
    */
   function streamer(el: HTMLElement): Streamer {
-    let tail = ''; // the segment being written
-    let held = ''; // a partial fence, waiting for the rest of it
-    let fenced = false;
-    let node: HTMLElement | null = null;
-
-    function open() {
-      node = document.createElement(fenced ? 'pre' : 'span');
-      if (fenced) node.appendChild(document.createElement('code'));
-      el.appendChild(node);
-    }
-
-    function paint() {
-      if (!node) {
-        if (!tail && !fenced) return;
-        open();
-      }
-      if (fenced) node!.firstChild!.textContent = tail.replace(/^[a-zA-Z0-9_-]*\n/, '');
-      else node!.innerHTML = inlineCode(tail);
-    }
-
-    /** Text with no fence left in it, into the segment being written. */
-    function write(chunk: string) {
-      if (!chunk) return;
-      tail += chunk;
-      paint();
-    }
-
-    /**
-     * Splits at every complete fence, then holds back a trailing run of
-     * one or two backticks in case the next delta completes one. Fences
-     * first: "```" often arrives as its own delta.
-     */
-    function consume(chunk: string, last: boolean) {
-      let rest = chunk;
-      let cut;
-      while ((cut = rest.indexOf('```')) !== -1) {
-        write(rest.slice(0, cut));
-        rest = rest.slice(cut + 3);
-        fenced = !fenced;
-        tail = '';
-        node = null;
-        paint();
-      }
-      if (!last) {
-        const partial = /`{1,2}$/.exec(rest);
-        if (partial) {
-          held = partial[0];
-          rest = rest.slice(0, rest.length - held.length);
-        }
-      }
-      write(rest);
-    }
+    let src = '';
+    let shown: { key: string; node: Node }[] = [];
 
     return {
       push(delta: unknown) {
-        const rest = held + String(delta);
-        held = '';
-        consume(rest, false);
-      },
-      /** Whatever is still held back is literal after all. */
-      flush() {
-        if (!held) return;
-        const rest = held;
-        held = '';
-        consume(rest, true);
+        src += String(delta);
+        const next = blocks(src);
+        let keep = 0;
+        while (keep < shown.length && keep < next.length - 1 && shown[keep].key === next[keep].key)
+          keep++;
+        shown.slice(keep).forEach(({ node }) => el.removeChild(node));
+        shown = shown.slice(0, keep);
+        for (const block of next.slice(keep)) {
+          const node = render(block);
+          el.appendChild(node);
+          shown.push({ key: block.key, node });
+        }
       },
     };
   }
@@ -181,7 +128,6 @@ function create(listEl: HTMLElement) {
   return {
     clear() {
       settleConfirms();
-      assistant?.flush();
       listEl.innerHTML = '';
       assistantEl = thinkingEl = null;
       assistant = null;
@@ -199,14 +145,12 @@ function create(listEl: HTMLElement) {
 
     endRun() {
       settleConfirms();
-      assistant?.flush();
       assistantEl = thinkingEl = null;
       assistant = null;
     },
 
     onBlockStart(blockType: string) {
       if (blockType === 'text') {
-        assistant?.flush();
         assistantEl = null;
         assistant = null;
       }
@@ -233,7 +177,6 @@ function create(listEl: HTMLElement) {
     },
 
     onToolStart({ id, name, input }: { id: string; name: string; input: unknown }) {
-      assistant?.flush();
       assistantEl = null;
       assistant = null;
       thinkingEl = null;
@@ -266,7 +209,6 @@ function create(listEl: HTMLElement) {
     },
 
     onConfirm({ name, input }: { name: string; input: unknown }) {
-      assistant?.flush();
       assistantEl = null;
       assistant = null;
       return new Promise<boolean>((resolve) => {

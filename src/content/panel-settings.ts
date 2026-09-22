@@ -114,7 +114,7 @@ function create(
 
       <div class="tva-set-group">
         <label class="tva-set-label">API key</label>
-        <div class="tva-key-row">
+        <div>
           <span class="tva-key-status" id="tva-key-status"></span>
           <button class="tva-secondary" id="tva-key-manage" type="button">Manage key</button>
         </div>

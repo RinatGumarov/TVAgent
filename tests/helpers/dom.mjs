@@ -274,6 +274,7 @@ export function makeElement(tagName) {
       el.children = [{ nodeType: 'text', text: String(v), parent: el }];
     },
   });
+  Object.defineProperty(el, 'childNodes', { get: () => el.children });
   Object.defineProperty(el, 'firstChild', {
     get() {
       return el.children[0] || null;
@@ -303,6 +304,7 @@ export function makeDocument() {
   const documentElement = makeElement('html');
   return {
     createElement: (tag) => makeElement(tag),
+    createTextNode: (text) => ({ nodeType: 'text', text: String(text), parent: null }),
     documentElement,
     /**
      * Only what is really in the document tree, like the real one: a detached

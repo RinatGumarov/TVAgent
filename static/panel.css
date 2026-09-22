@@ -225,6 +225,98 @@
   align-self: stretch;
   white-space: pre-wrap;
 }
+/* Markdown in an answer. Every rule is stated: TradingView's own CSS resets
+   margins, list markers and emphasis. */
+#tva-root .tva-msg.assistant > :first-child {
+  margin-top: 0;
+}
+#tva-root .tva-msg.assistant > :last-child {
+  margin-bottom: 0;
+}
+#tva-root .tva-msg p,
+#tva-root .tva-msg ul,
+#tva-root .tva-msg ol,
+#tva-root .tva-msg blockquote {
+  margin: 0 0 8px;
+}
+#tva-root .tva-msg h1,
+#tva-root .tva-msg h2,
+#tva-root .tva-msg h3,
+#tva-root .tva-msg h4,
+#tva-root .tva-msg h5,
+#tva-root .tva-msg h6 {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+#tva-root .tva-msg h1 {
+  font-size: 15px;
+}
+#tva-root .tva-msg h2 {
+  font-size: 14px;
+}
+#tva-root .tva-msg ul,
+#tva-root .tva-msg ol {
+  padding-left: 20px;
+}
+#tva-root .tva-msg ul {
+  list-style: disc;
+}
+#tva-root .tva-msg ol {
+  list-style: decimal;
+}
+#tva-root .tva-msg li {
+  display: list-item;
+  margin: 2px 0;
+}
+#tva-root .tva-msg li > p {
+  margin: 0 0 4px;
+}
+#tva-root .tva-msg strong {
+  font-weight: 600;
+}
+#tva-root .tva-msg em {
+  font-style: italic;
+}
+#tva-root .tva-msg s {
+  text-decoration: line-through;
+}
+#tva-root .tva-msg a {
+  color: var(--tva-accent);
+  text-decoration: underline;
+}
+#tva-root .tva-msg blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--tva-border);
+  color: var(--tva-fg-dim);
+}
+#tva-root .tva-msg hr {
+  height: 0;
+  margin: 10px 0;
+  border: 0;
+  border-top: 1px solid var(--tva-border);
+}
+/* A wide table scrolls by itself instead of widening the panel. */
+#tva-root .tva-msg table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 0 0 8px;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: nowrap;
+}
+#tva-root .tva-msg th,
+#tva-root .tva-msg td {
+  padding: 4px 8px;
+  border: 1px solid var(--tva-border);
+  text-align: left;
+}
+#tva-root .tva-msg th {
+  background: var(--tva-bg-soft);
+  font-weight: 600;
+}
 #tva-root .tva-msg.error {
   align-self: stretch;
   color: var(--tva-err);
@@ -590,15 +682,8 @@
   font-size: 12px;
   cursor: pointer;
 }
-/* The API key fields are closed shadow roots, so their own styling is inside
-   them (panel-settings.js) — this is only the box they sit in. */
-#tva-root .tva-key-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 #tva-root .tva-key-status {
-  flex: 1;
+  display: block;
   font-size: 12px;
   color: var(--tva-fg-dim);
 }
