@@ -10,9 +10,18 @@ Ask it "add EMA 50 and 200", "mark the high and low of the visible range", or
 
 ![Adding EMA 50 and EMA 200 from the chat](.github/media/indicators.avif)
 
+*Adding EMA 50 and 200, with reasoning on: the model's thinking is shown
+unfolded above its tool calls.*
+
 ![Marking the high and low of the visible range](.github/media/levels.avif)
 
+*Marking the high and low of the visible range, with reasoning off: the model
+goes straight to the tool calls.*
+
 ![Writing an EMA crossover strategy in Pine and backtesting it](.github/media/strategy.avif)
+
+*Building an EMA crossover strategy: the agent writes the Pine script in
+TradingView's Pine Editor, adds it to the chart and reads the backtest report.*
 
 Recorded on a live chart with a local model (`gemma4:26b-a4b-it-qat`); the
 waits for the model are shortened.
