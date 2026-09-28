@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TVAgent \u2014 AI Chart Assistant",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI chart assistant that reads and updates TradingView charts through a fixed set of local tools.",
   "minimum_chrome_version": "111",
   "homepage_url": "https://github.com/RinatGumarov/TVAgent",
